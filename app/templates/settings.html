@@ -13,66 +13,40 @@
           <h2 class="mdc-typography--headline5">Configurações</h2>
         </div>
         <div class="mdc-card__content">
-          <form method="POST" action="{{ url_for('main.settings') }}">
-            {{ form.csrf_token }}
-            
-            <div class="mdc-text-field mdc-text-field--outlined">
-              {{ form.current_password(class="mdc-text-field__input") }}
+          <form method="POST" action="{{ url_for('main.settings') }}" class="mdc-form-field">
+            <div class="mdc-text-field mdc-text-field--outlined" data-mdc-auto-init="MDCTextField">
+              <input type="text" class="mdc-text-field__input" name="openai_api_key" value="{{ openai_api_key }}" required>
               <div class="mdc-notched-outline">
                 <div class="mdc-notched-outline__leading"></div>
                 <div class="mdc-notched-outline__notch">
-                  <label class="mdc-floating-label">{{ form.current_password.label }}</label>
+                  <label class="mdc-floating-label">Chave da API OpenAI</label>
                 </div>
                 <div class="mdc-notched-outline__trailing"></div>
               </div>
             </div>
-            {% if form.current_password.errors %}
-              {% for error in form.current_password.errors %}
-                <div class="mdc-text-field-helper-line">
-                  <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error">{{ error }}</div>
-                </div>
-              {% endfor %}
-            {% endif %}
+            <div class="mdc-text-field-helper-line">
+              <div class="mdc-text-field-helper-text mdc-text-field-helper-text--persistent">
+                Sua chave de API da OpenAI
+              </div>
+            </div>
 
-            <div class="mdc-text-field mdc-text-field--outlined">
-              {{ form.new_password(class="mdc-text-field__input") }}
+            <div class="mdc-text-field mdc-text-field--outlined" data-mdc-auto-init="MDCTextField" style="margin-top: 16px;">
+              <input type="text" class="mdc-text-field__input" name="other_api_key" value="{{ other_api_key }}">
               <div class="mdc-notched-outline">
                 <div class="mdc-notched-outline__leading"></div>
                 <div class="mdc-notched-outline__notch">
-                  <label class="mdc-floating-label">{{ form.new_password.label }}</label>
+                  <label class="mdc-floating-label">Outra Chave de API (opcional)</label>
                 </div>
                 <div class="mdc-notched-outline__trailing"></div>
               </div>
             </div>
-            {% if form.new_password.errors %}
-              {% for error in form.new_password.errors %}
-                <div class="mdc-text-field-helper-line">
-                  <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error">{{ error }}</div>
-                </div>
-              {% endfor %}
-            {% endif %}
-
-            <div class="mdc-text-field mdc-text-field--outlined">
-              {{ form.confirm_password(class="mdc-text-field__input") }}
-              <div class="mdc-notched-outline">
-                <div class="mdc-notched-outline__leading"></div>
-                <div class="mdc-notched-outline__notch">
-                  <label class="mdc-floating-label">{{ form.confirm_password.label }}</label>
-                </div>
-                <div class="mdc-notched-outline__trailing"></div>
-              </div>
-            </div>
-            {% if form.confirm_password.errors %}
-              {% for error in form.confirm_password.errors %}
-                <div class="mdc-text-field-helper-line">
-                  <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error">{{ error }}</div>
-                </div>
-              {% endfor %}
-            {% endif %}
 
             <div class="mdc-card__actions">
               <div class="mdc-card__action-buttons">
-                {{ form.submit(class="mdc-button mdc-button--raised") }}
+                <button type="submit" class="mdc-button mdc-button--raised mdc-button--touch">
+                  <span class="mdc-button__ripple"></span>
+                  <span class="mdc-button__label">Salvar Configurações</span>
+                </button>
               </div>
             </div>
           </form>

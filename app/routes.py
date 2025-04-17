@@ -7,7 +7,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from .forms import ChangePasswordForm
 import sys
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
+from pathlib import Path
 
 # Adicionar o diretório src ao PYTHONPATH
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
@@ -150,16 +151,26 @@ def generate():
 @main.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
-    form = ChangePasswordForm()
-    if form.validate_on_submit():
-        if current_user.check_password(form.current_password.data):
-            current_user.set_password(form.new_password.data)
-            db.session.commit()
-            flash('Senha alterada com sucesso!', 'success')
-            return redirect(url_for('main.settings'))
-        else:
-            flash('Senha atual incorreta.', 'error')
-    return render_template('settings.html', form=form)
+    env_path = Path('.env')
+    openai_api_key = os.getenv('OPENAI_API_KEY', '')
+    other_api_key = os.getenv('OTHER_API_KEY', '')
+
+    if request.method == 'POST':
+        openai_api_key = request.form.get('openai_api_key')
+        other_api_key = request.form.get('other_api_key')
+
+        # Salvar as chaves no arquivo .env
+        if openai_api_key:
+            set_key(env_path, 'OPENAI_API_KEY', openai_api_key)
+        if other_api_key:
+            set_key(env_path, 'OTHER_API_KEY', other_api_key)
+
+        flash('Configurações salvas com sucesso!', 'success')
+        return redirect(url_for('main.settings'))
+
+    return render_template('settings.html', 
+                         openai_api_key=openai_api_key,
+                         other_api_key=other_api_key)
 
 @main.route('/docs')
 @login_required
