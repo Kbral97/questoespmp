@@ -13,7 +13,22 @@ sudo apt-get install -y libsdl2-gfx-dev libsdl2-net-dev
 pip install gunicorn
 
 # Configurar PYTHONPATH corretamente
-export PYTHONPATH=$(pwd):$PYTHONPATH
+export PYTHONPATH=$(pwd)/src:$PYTHONPATH
+
+# Configurar variáveis de ambiente do Kivy
+export KIVY_NO_ARGS=1
+export KIVY_NO_CONSOLELOG=1
+export KIVY_NO_FILELOG=1
+export KIVY_GL_BACKEND=sdl2
+export KIVY_WINDOW=sdl2
+export KIVY_IMAGE=sdl2
+export KIVY_AUDIO=sdl2
+export KIVY_VIDEO=ffpyplayer
+export KIVY_INPUT=sdl2
+export KIVY_MTDEV=0
+export KIVY_USE_INPUT=1
+export KIVY_USE_MOUSE=1
+export KIVY_USE_TOUCH=0
 
 # Iniciar o Gunicorn com as configurações
-gunicorn --config gunicorn.conf.py "src.questoespmp2.__main__:main" 
+gunicorn --config gunicorn.conf.py "questoespmp2.__main__:create_app()" 
