@@ -18,6 +18,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Definir variável de ambiente para o Kivy antes de qualquer import
+os.environ['KIVY_NO_ARGS'] = '1'
+
 def main():
     """Main entry point."""
     try:
