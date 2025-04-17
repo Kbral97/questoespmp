@@ -1,8 +1,17 @@
 import os
 import multiprocessing
 
-# Definir variável de ambiente para o Kivy antes de qualquer import
+# Configurações do Kivy para modo headless
 os.environ['KIVY_NO_ARGS'] = '1'
+os.environ['KIVY_NO_CONSOLELOG'] = '1'
+os.environ['KIVY_NO_FILELOG'] = '1'
+os.environ['KIVY_NO_ARGS'] = '1'
+os.environ['KIVY_BCM_DISPMANX_ID'] = '0'
+os.environ['KIVY_GL_BACKEND'] = 'sdl2'
+os.environ['KIVY_WINDOW'] = 'sdl2'
+os.environ['KIVY_IMAGE'] = 'sdl2'
+os.environ['KIVY_AUDIO'] = 'sdl2'
+os.environ['KIVY_VIDEO'] = 'ffpyplayer'
 
 # Configuração básica
 bind = "0.0.0.0:8000"
