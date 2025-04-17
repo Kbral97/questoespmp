@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mdc-layout-grid">
+  <div class="mdc-layout-grid__inner">
+    <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+      <h1 class="mdc-typography--headline4">Configurações</h1>
+    </div>
+
+    <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+      <div class="mdc-card">
+        <div class="mdc-card__primary">
+          <h2 class="mdc-typography--headline5">Configurações</h2>
+        </div>
+        <div class="mdc-card__content">
+          <form method="POST" action="{{ url_for('main.settings') }}">
+            {{ form.csrf_token }}
+            
+            <div class="mdc-text-field mdc-text-field--outlined">
+              {{ form.current_password(class="mdc-text-field__input") }}
+              <div class="mdc-notched-outline">
+                <div class="mdc-notched-outline__leading"></div>
+                <div class="mdc-notched-outline__notch">
+                  <label class="mdc-floating-label">{{ form.current_password.label }}</label>
+                </div>
+                <div class="mdc-notched-outline__trailing"></div>
+              </div>
+            </div>
+            {% if form.current_password.errors %}
+              {% for error in form.current_password.errors %}
+                <div class="mdc-text-field-helper-line">
+                  <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error">{{ error }}</div>
+                </div>
+              {% endfor %}
+            {% endif %}
+
+            <div class="mdc-text-field mdc-text-field--outlined">
+              {{ form.new_password(class="mdc-text-field__input") }}
+              <div class="mdc-notched-outline">
+                <div class="mdc-notched-outline__leading"></div>
+                <div class="mdc-notched-outline__notch">
+                  <label class="mdc-floating-label">{{ form.new_password.label }}</label>
+                </div>
+                <div class="mdc-notched-outline__trailing"></div>
+              </div>
+            </div>
+            {% if form.new_password.errors %}
+              {% for error in form.new_password.errors %}
+                <div class="mdc-text-field-helper-line">
+                  <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error">{{ error }}</div>
+                </div>
+              {% endfor %}
+            {% endif %}
+
+            <div class="mdc-text-field mdc-text-field--outlined">
+              {{ form.confirm_password(class="mdc-text-field__input") }}
+              <div class="mdc-notched-outline">
+                <div class="mdc-notched-outline__leading"></div>
+                <div class="mdc-notched-outline__notch">
+                  <label class="mdc-floating-label">{{ form.confirm_password.label }}</label>
+                </div>
+                <div class="mdc-notched-outline__trailing"></div>
+              </div>
+            </div>
+            {% if form.confirm_password.errors %}
+              {% for error in form.confirm_password.errors %}
+                <div class="mdc-text-field-helper-line">
+                  <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error">{{ error }}</div>
+                </div>
+              {% endfor %}
+            {% endif %}
+
+            <div class="mdc-card__actions">
+              <div class="mdc-card__action-buttons">
+                {{ form.submit(class="mdc-button mdc-button--raised") }}
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Inicializa os componentes MDC
+  const textFields = document.querySelectorAll('.mdc-text-field');
+  textFields.forEach(textField => {
+    mdc.textField.MDCTextField.attachTo(textField);
+  });
+
+  const buttons = document.querySelectorAll('.mdc-button');
+  buttons.forEach(button => {
+    mdc.ripple.MDCRipple.attachTo(button);
+  });
+</script>
+{% endblock %} 

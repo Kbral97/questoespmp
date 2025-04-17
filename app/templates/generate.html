@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mdc-layout-grid">
+    <div class="mdc-layout-grid__inner">
+        <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+            <div class="mdc-card">
+                <div class="mdc-card__primary">
+                    <h2 class="mdc-typography--headline5">Gerar Questões</h2>
+                </div>
+                <div class="mdc-card__content">
+                    <form id="generateForm" class="mdc-form">
+                        <div class="mdc-layout-grid__inner">
+                            <!-- Tópico -->
+                            <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+                                <div class="mdc-select mdc-select--outlined">
+                                    <div class="mdc-select__anchor">
+                                        <span class="mdc-notched-outline">
+                                            <span class="mdc-notched-outline__leading"></span>
+                                            <span class="mdc-notched-outline__notch">
+                                                <span class="mdc-floating-label">Tópico</span>
+                                            </span>
+                                            <span class="mdc-notched-outline__trailing"></span>
+                                        </span>
+                                        <span class="mdc-select__selected-text-container">
+                                            <span class="mdc-select__selected-text"></span>
+                                        </span>
+                                        <span class="mdc-select__dropdown-icon">
+                                            <svg class="mdc-select__dropdown-icon-graphic" viewBox="7 10 10 5">
+                                                <polygon class="mdc-select__dropdown-icon-inactive" stroke="none" fill-rule="evenodd" points="7 10 12 15 17 10"></polygon>
+                                                <polygon class="mdc-select__dropdown-icon-active" stroke="none" fill-rule="evenodd" points="7 15 12 10 17 15"></polygon>
+                                            </svg>
+                                        </span>
+                                    </div>
+                                    <div class="mdc-select__menu mdc-menu mdc-menu-surface mdc-menu-surface--fullwidth">
+                                        <ul class="mdc-list" role="listbox">
+                                            <li class="mdc-list-item" data-value="Gerenciamento da Integração">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento da Integração</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento do Escopo">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento do Escopo</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento do Cronograma">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento do Cronograma</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento dos Custos">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento dos Custos</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento da Qualidade">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento da Qualidade</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento dos Recursos">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento dos Recursos</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento das Comunicações">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento das Comunicações</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento dos Riscos">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento dos Riscos</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento das Aquisições">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento das Aquisições</span>
+                                            </li>
+                                            <li class="mdc-list-item" data-value="Gerenciamento das Partes Interessadas">
+                                                <span class="mdc-list-item__ripple"></span>
+                                                <span class="mdc-list-item__text">Gerenciamento das Partes Interessadas</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Número de Questões -->
+                            <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+                                <div class="mdc-text-field mdc-text-field--outlined">
+                                    <input type="number" class="mdc-text-field__input" id="numQuestions" min="1" max="10" required>
+                                    <div class="mdc-notched-outline">
+                                        <div class="mdc-notched-outline__leading"></div>
+                                        <div class="mdc-notched-outline__notch">
+                                            <label for="numQuestions" class="mdc-floating-label">Número de Questões</label>
+                                        </div>
+                                        <div class="mdc-notched-outline__trailing"></div>
+                                    </div>
+                                </div>
+                                <div class="mdc-text-field-helper-line">
+                                    <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error" aria-hidden="true">
+                                        Digite um número entre 1 e 10
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Botão Gerar -->
+                            <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+                                <button type="submit" class="mdc-button mdc-button--raised">
+                                    <span class="mdc-button__ripple"></span>
+                                    <span class="mdc-button__label">Gerar Questões</span>
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progresso -->
+        <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12" id="progressSection" style="display: none;">
+            <div class="mdc-card">
+                <div class="mdc-card__content">
+                    <div class="mdc-linear-progress mdc-linear-progress--indeterminate">
+                        <div class="mdc-linear-progress__buffer">
+                            <div class="mdc-linear-progress__buffer-bar"></div>
+                            <div class="mdc-linear-progress__buffer-dots"></div>
+                        </div>
+                        <div class="mdc-linear-progress__bar mdc-linear-progress__primary-bar">
+                            <span class="mdc-linear-progress__bar-inner"></span>
+                        </div>
+                        <div class="mdc-linear-progress__bar mdc-linear-progress__secondary-bar">
+                            <span class="mdc-linear-progress__bar-inner"></span>
+                        </div>
+                    </div>
+                    <p id="progressText" class="mdc-typography--body1"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Resultados -->
+        <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12" id="resultsSection" style="display: none;">
+            <div class="mdc-card">
+                <div class="mdc-card__primary">
+                    <h2 class="mdc-typography--headline5">Questões Geradas</h2>
+                </div>
+                <div class="mdc-card__content">
+                    <div id="generatedQuestions"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar componentes MDC
+    const textFields = document.querySelectorAll('.mdc-text-field');
+    textFields.forEach(textField => mdc.textField.MDCTextField.attachTo(textField));
+
+    const selects = document.querySelectorAll('.mdc-select');
+    selects.forEach(select => mdc.select.MDCSelect.attachTo(select));
+
+    // Manipular envio do formulário
+    const form = document.getElementById('generateForm');
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const topic = document.querySelector('.mdc-select__selected-text').textContent.trim();
+        const numQuestions = document.getElementById('numQuestions').value;
+
+        if (!topic || !numQuestions) {
+            alert('Por favor, preencha todos os campos.');
+            return;
+        }
+
+        // Mostrar seção de progresso
+        document.getElementById('progressSection').style.display = 'block';
+        document.getElementById('resultsSection').style.display = 'none';
+        document.getElementById('progressText').textContent = 'Gerando questões...';
+
+        // Enviar requisição para a API
+        fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                topic: topic,
+                num_questions: parseInt(numQuestions)
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Esconder seção de progresso
+            document.getElementById('progressSection').style.display = 'none';
+            document.getElementById('resultsSection').style.display = 'block';
+
+            // Exibir questões geradas
+            const questionsContainer = document.getElementById('generatedQuestions');
+            questionsContainer.innerHTML = '';
+
+            data.questions.forEach((question, index) => {
+                const questionCard = document.createElement('div');
+                questionCard.className = 'mdc-card mdc-card--outlined';
+                questionCard.innerHTML = `
+                    <div class="mdc-card__content">
+                        <h3 class="mdc-typography--headline6">Questão ${index + 1}</h3>
+                        <p class="mdc-typography--body1">${question.question}</p>
+                        <div class="mdc-list">
+                            ${question.options.map((option, i) => `
+                                <div class="mdc-list-item">
+                                    <span class="mdc-list-item__ripple"></span>
+                                    <span class="mdc-list-item__text">${String.fromCharCode(65 + i)}. ${option}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="mdc-card__actions">
+                            <div class="mdc-card__action-buttons">
+                                <button class="mdc-button mdc-button--outlined" onclick="showAnswer(${index})">
+                                    <span class="mdc-button__ripple"></span>
+                                    <span class="mdc-button__label">Mostrar Resposta</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div id="answer${index}" style="display: none;">
+                            <p class="mdc-typography--body1">
+                                <strong>Resposta correta:</strong> ${question.correct_answer}<br>
+                                <strong>Explicação:</strong> ${question.explanation}
+                            </p>
+                        </div>
+                    </div>
+                `;
+                questionsContainer.appendChild(questionCard);
+            });
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            document.getElementById('progressText').textContent = 'Erro ao gerar questões. Tente novamente.';
+        });
+    });
+});
+
+function showAnswer(index) {
+    const answerDiv = document.getElementById(`answer${index}`);
+    if (answerDiv.style.display === 'none') {
+        answerDiv.style.display = 'block';
+    } else {
+        answerDiv.style.display = 'none';
+    }
+}
+</script>
+{% endblock %} 

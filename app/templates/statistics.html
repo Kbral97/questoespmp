@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mdc-layout-grid">
+  <div class="mdc-layout-grid__inner">
+    <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+      <a href="{{ url_for('main.index') }}" class="mdc-button mdc-button--outlined" style="margin-bottom: 16px;">
+        <span class="mdc-button__ripple"></span>
+        <span class="mdc-button__label">Voltar ao Menu</span>
+      </a>
+      <div class="mdc-card">
+        <div class="mdc-card__primary">
+          <h2 class="mdc-typography--headline5">Estatísticas</h2>
+        </div>
+        <div class="mdc-card__content">
+          <p>Aqui você poderá visualizar suas estatísticas de desempenho.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %} 

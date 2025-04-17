@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mdc-layout-grid">
+  <div class="mdc-layout-grid__inner">
+    <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+      <a href="{{ url_for('main.index') }}" class="mdc-button mdc-button--outlined" style="margin-bottom: 16px;">
+        <span class="mdc-button__ripple"></span>
+        <span class="mdc-button__label">Voltar ao Menu</span>
+      </a>
+      <div class="mdc-card">
+        <div class="mdc-card__primary">
+          <h2 class="mdc-typography--headline5">Responder Questões</h2>
+        </div>
+        <div class="mdc-card__content">
+          <div id="question-area">
+            <div id="question-text" class="mdc-typography--body1" style="margin-bottom: 24px;"></div>
+            <div id="options-area"></div>
+            <div id="feedback-area" style="margin-top:24px;"></div>
+            <div id="actions-area" style="margin-top:24px;display:flex;gap:12px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentQuestion = null;
+let answered = false;
+
+async function loadQuestion() {
+  answered = false;
+  document.getElementById('feedback-area').innerHTML = '';
+  document.getElementById('actions-area').innerHTML = '';
+  const resp = await fetch('/api/random-question');
+  if (!resp.ok) {
+    document.getElementById('question-text').textContent = 'Não há questões disponíveis.';
+    document.getElementById('options-area').innerHTML = '';
+    return;
+  }
+  const data = await resp.json();
+  currentQuestion = data;
+  document.getElementById('question-text').textContent = data.question;
+  const optionsArea = document.getElementById('options-area');
+  optionsArea.innerHTML = '';
+  data.options.forEach((opt, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'mdc-button mdc-button--outlined';
+    btn.style = 'display:block;width:100%;margin-bottom:12px;text-align:left;transition:background 0.2s;';
+    btn.innerHTML = `<span class=\"mdc-button__ripple\"></span><span class=\"mdc-button__label\">${String.fromCharCode(65+idx)}. ${opt}</span>`;
+    btn.onclick = () => answerQuestion(idx, btn);
+    btn.disabled = false;
+    optionsArea.appendChild(btn);
+  });
+}
+
+async function answerQuestion(idx, btn) {
+  if (answered) return;
+  answered = true;
+  const resp = await fetch('/api/answer-question', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question_id: currentQuestion.id, selected_index: idx })
+  });
+  const data = await resp.json();
+  const optionsArea = document.getElementById('options-area');
+  const buttons = optionsArea.querySelectorAll('button');
+  buttons.forEach((b, i) => {
+    b.disabled = true;
+    if (i === data.correct_index) {
+      b.style.background = '#C8E6C9'; // verde claro
+    } else if (i === idx) {
+      b.style.background = '#FFCDD2'; // vermelho claro
+    } else {
+      b.style.background = '';
+    }
+  });
+  let feedback = data.correct ? '<b>Correto!</b>' : '<b>Incorreto.</b>';
+  feedback += `<br><span>${data.explanation || ''}</span>`;
+  document.getElementById('feedback-area').innerHTML = feedback;
+  renderActions();
+}
+
+function renderActions() {
+  const actions = document.getElementById('actions-area');
+  actions.innerHTML = '';
+  // Próxima questão
+  const nextBtn = document.createElement('button');
+  nextBtn.className = 'mdc-button mdc-button--raised';
+  nextBtn.innerHTML = '<span class="mdc-button__ripple"></span><span class="mdc-button__label">Próxima Questão</span>';
+  nextBtn.onclick = loadQuestion;
+  actions.appendChild(nextBtn);
+  // Reportar problema
+  const reportBtn = document.createElement('button');
+  reportBtn.className = 'mdc-button mdc-button--outlined';
+  reportBtn.innerHTML = '<span class="mdc-button__ripple"></span><span class="mdc-button__label">Reportar Problema</span>';
+  reportBtn.onclick = showReportDialog;
+  actions.appendChild(reportBtn);
+}
+
+function showReportDialog() {
+  const area = document.getElementById('feedback-area');
+  let html = `<div id='report-dialog' style='background:#fff;padding:16px;border-radius:8px;box-shadow:0 2px 8px #0002;max-width:400px;margin:0 auto;'>`;
+  html += `<div style='margin-bottom:8px;'><b>Reportar problema nesta questão:</b></div>`;
+  html += `<select id='problem-type' class='mdc-text-field__input' style='width:100%;margin-bottom:8px;'>
+    <option value='muito_facil'>Questão muito fácil</option>
+    <option value='opcoes_obvias'>Opções óbvias</option>
+    <option value='questao_confusa'>Questão confusa</option>
+    <option value='problema_explicacao'>Problema na explicação</option>
+    <option value='outro'>Outro</option>
+  </select>`;
+  html += `<textarea id='problem-details' class='mdc-text-field__input' style='width:100%;height:60px;margin-bottom:8px;' placeholder='Descreva o problema (opcional)'></textarea>`;
+  html += `<button class='mdc-button mdc-button--raised' onclick='submitReport()'><span class="mdc-button__ripple"></span><span class="mdc-button__label">Enviar</span></button> `;
+  html += `<button class='mdc-button mdc-button--outlined' onclick='closeReportDialog()'><span class="mdc-button__ripple"></span><span class="mdc-button__label">Cancelar</span></button>`;
+  html += `</div>`;
+  area.innerHTML = html;
+}
+
+async function submitReport() {
+  const type = document.getElementById('problem-type').value;
+  const details = document.getElementById('problem-details').value;
+  const resp = await fetch('/api/report-question', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question_id: currentQuestion.id, problem_type: type, details })
+  });
+  if (resp.ok) {
+    document.getElementById('feedback-area').innerHTML = '<b>Obrigado pelo feedback! A questão foi removida.</b>';
+    document.getElementById('actions-area').innerHTML = '';
+    setTimeout(loadQuestion, 1500);
+  } else {
+    document.getElementById('feedback-area').innerHTML = '<b>Erro ao reportar problema.</b>';
+  }
+}
+function closeReportDialog() {
+  document.getElementById('feedback-area').innerHTML = '';
+  renderActions();
+}
+
+window.addEventListener('DOMContentLoaded', loadQuestion);
+</script>
+{% endblock %} 

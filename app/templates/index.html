@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mdc-layout-grid">
+  <div class="mdc-layout-grid__inner">
+    <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+      <div class="mdc-card">
+        <div class="mdc-card__primary">
+          <h2 class="mdc-typography--headline5">Bem-vindo ao Questões PMP</h2>
+        </div>
+        <div class="mdc-card__content">
+          <div class="mdc-touch-target-wrapper" style="margin-bottom: 16px;">
+            <a href="{{ url_for('main.answer_questions') }}" class="mdc-button mdc-button--raised mdc-button--touch" style="width: 100%; margin-bottom: 8px;">
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Responder Questões</span>
+            </a>
+            <a href="{{ url_for('main.generate_questions_page') }}" class="mdc-button mdc-button--outlined mdc-button--touch" style="width: 100%; margin-bottom: 8px;">
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Gerar Questões</span>
+            </a>
+            <a href="{{ url_for('main.statistics') }}" class="mdc-button mdc-button--outlined mdc-button--touch" style="width: 100%; margin-bottom: 8px;">
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Estatísticas</span>
+            </a>
+            <a href="{{ url_for('main.docs') }}" class="mdc-button mdc-button--outlined mdc-button--touch" style="width: 100%; margin-bottom: 8px;">
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Tratamento de Documentos</span>
+            </a>
+            <a href="{{ url_for('main.model_training') }}" class="mdc-button mdc-button--outlined mdc-button--touch" style="width: 100%; margin-bottom: 8px;">
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Treinamento de Modelo</span>
+            </a>
+            <a href="{{ url_for('main.model_selection') }}" class="mdc-button mdc-button--outlined mdc-button--touch" style="width: 100%;">
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Escolher Modelo Padrão</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Inicializa os componentes MDC
+  const buttons = document.querySelectorAll('.mdc-button');
+  buttons.forEach(button => {
+    mdc.ripple.MDCRipple.attachTo(button);
+  });
+</script>
+{% endblock %} 
