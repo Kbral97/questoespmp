@@ -21,8 +21,8 @@ logging.basicConfig(
 # Definir variável de ambiente para o Kivy antes de qualquer import
 os.environ['KIVY_NO_ARGS'] = '1'
 
-def main():
-    """Main entry point."""
+def create_app():
+    """Create and return the application instance."""
     try:
         # Initialize API manager
         api_manager = APIManager()
@@ -31,13 +31,17 @@ def main():
         if not api_manager.get_api_key():
             print("Aviso: Chave da API não encontrada. Configure-a no aplicativo.")
             
-        # Run the application
-        app = MDApp()
-        app.run()
+        # Create and return the application
+        return MDApp()
         
     except Exception as e:
-        logging.error(f"Erro ao iniciar aplicativo: {e}")
+        logging.error(f"Erro ao criar aplicativo: {e}")
         sys.exit(1)
+
+def main():
+    """Main entry point."""
+    app = create_app()
+    app.run()
 
 if __name__ == '__main__':
     main() 

@@ -12,9 +12,8 @@ sudo apt-get install -y libsdl2-gfx-dev libsdl2-net-dev
 # Instalar Gunicorn se não estiver instalado
 pip install gunicorn
 
-# Exportar variáveis de ambiente necessárias
-export KIVY_NO_ARGS=1
-export PYTHONPATH=$PYTHONPATH:$(pwd)
+# Configurar PYTHONPATH corretamente
+export PYTHONPATH=$(pwd):$PYTHONPATH
 
 # Iniciar o Gunicorn com as configurações
-gunicorn --config gunicorn.conf.py "src.questoespmp2.__main__:main()" 
+gunicorn --config gunicorn.conf.py "src.questoespmp2.__main__:main" 
