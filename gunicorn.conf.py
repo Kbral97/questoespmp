@@ -13,6 +13,13 @@ os.environ['KIVY_IMAGE'] = 'sdl2'
 os.environ['KIVY_AUDIO'] = 'sdl2'
 os.environ['KIVY_VIDEO'] = 'ffpyplayer'
 
+# Desabilitar MTDev e configurar driver de entrada
+os.environ['KIVY_INPUT'] = 'sdl2'
+os.environ['KIVY_MTDEV'] = '0'
+os.environ['KIVY_USE_INPUT'] = '1'
+os.environ['KIVY_USE_MOUSE'] = '1'
+os.environ['KIVY_USE_TOUCH'] = '0'
+
 # Configuração básica
 bind = "0.0.0.0:8000"
 workers = multiprocessing.cpu_count() * 2 + 1
