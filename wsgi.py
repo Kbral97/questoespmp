@@ -1,5 +1,10 @@
 import os
 import logging
+import sys
+
+# Adicionar o diretório src ao PYTHONPATH
+src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
+sys.path.append(src_path)
 
 # Configurar logging
 logging.basicConfig(level=logging.DEBUG)
