@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Configurar diretório base
+BASE_DIR=$(pwd)
+echo "Diretório base: $BASE_DIR"
+
 # Ativar ambiente virtual
 if [ -d "venv" ]; then
     source venv/bin/activate
@@ -12,6 +16,7 @@ else
 fi
 
 # Instalar dependências do sistema
+echo "Instalando dependências do sistema..."
 sudo apt-get update
 sudo apt-get install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
 sudo apt-get install -y libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev
@@ -22,17 +27,21 @@ echo "Instalando dependências Python..."
 pip install -r requirements.txt
 pip install gunicorn
 
-# Configurar PYTHONPATH corretamente
-export PYTHONPATH=$(pwd)
-echo "PYTHONPATH: $PYTHONPATH"
-echo "Current directory: $(pwd)"
-echo "Directory contents:"
+# Configurar PYTHONPATH
+export PYTHONPATH="$BASE_DIR:$BASE_DIR/app"
+echo "PYTHONPATH configurado: $PYTHONPATH"
+
+# Verificar estrutura do projeto
+echo "Verificando estrutura do projeto..."
+echo "Conteúdo do diretório base:"
 ls -la
-echo "App directory contents:"
+echo "Conteúdo do diretório app:"
 ls -la app/
-echo "Database directory contents:"
+echo "Conteúdo do diretório database:"
 ls -la app/database/
-echo "Python path:"
+
+# Verificar Python path
+echo "Python path atual:"
 python -c "import sys; print('\n'.join(sys.path))"
 
 # Testar importação do módulo
@@ -54,6 +63,6 @@ export KIVY_USE_INPUT=1
 export KIVY_USE_MOUSE=1
 export KIVY_USE_TOUCH=0
 
-# Iniciar o servidor Gunicorn com PYTHONPATH explícito
+# Iniciar o servidor Gunicorn
 echo "Iniciando servidor Gunicorn..."
-PYTHONPATH=$(pwd) gunicorn --config gunicorn.conf.py wsgi:app 
+gunicorn --config gunicorn.conf.py wsgi:app 
