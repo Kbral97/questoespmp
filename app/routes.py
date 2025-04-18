@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
 
 # Importar usando caminho absoluto
-from questoespmp2.api.openai_client import generate_questions
+from questoespmp2.api.openai_client import generate_questions, generate_questions_with_specialized_models
 from questoespmp2.database.db_manager import DatabaseManager
 import logging
 
@@ -95,6 +95,9 @@ def get_statistics():
 @login_required
 def generate():
     try:
+        # Log dos dados recebidos
+        logging.info(f"Dados recebidos na requisição: {request.get_json()}")
+        
         # Verificar se a API key está configurada
         api_key = os.getenv('OPENAI_API_KEY')
         if not api_key:
@@ -103,20 +106,30 @@ def generate():
         data = request.get_json()
         topic = data.get('topic')
         num_questions = data.get('num_questions')
+        num_subtopics = data.get('num_subtopics', 1)  # Default para 1 se não especificado
+        
+        # Log dos dados processados
+        logging.info(f"Dados processados: topic={topic}, num_questions={num_questions}, num_subtopics={num_subtopics}")
 
         if not topic or not num_questions:
+            logging.error(f"Campos obrigatórios faltando: topic={topic}, num_questions={num_questions}")
             return jsonify({'error': 'Tópico e número de questões são obrigatórios'}), 400
 
         # Gerar questões usando a implementação existente
-        questions = generate_questions(
+        questions = generate_questions_with_specialized_models(
             topic=topic,
             num_questions=num_questions,
+            num_subtopics=num_subtopics,
             api_key=api_key,
-            progress_callback=lambda progress, message: logging.info(f"Progresso: {progress}% - {message}")
+            callback=lambda progress, message: logging.info(f"Progresso: {progress}% - {message}")
         )
 
         if not questions:
+            logging.error("Não foi possível gerar questões")
             return jsonify({'error': 'Não foi possível gerar questões'}), 500
+
+        # Log das questões geradas
+        logging.info(f"Questões geradas com sucesso: {len(questions)} questões")
 
         # Salvar questões no banco de dados
         for question_data in questions:
@@ -124,7 +137,7 @@ def generate():
                 content=question_data['question'],
                 answer=question_data['correct_answer'],
                 domain=topic,
-                process_group='',  # Pode ser preenchido posteriormente
+                process_group=question_data.get('subtopic', ''),
                 user_id=current_user.id
             )
             db.session.add(question)
@@ -146,7 +159,7 @@ def generate():
     except Exception as e:
         logging.error(f'Erro ao gerar questões: {str(e)}')
         db.session.rollback()
-        return jsonify({'error': 'Erro ao gerar questões'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @main.route('/settings', methods=['GET', 'POST'])
 @login_required

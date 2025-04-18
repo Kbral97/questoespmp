@@ -23,10 +23,8 @@ os.environ['KIVY_USE_TOUCH'] = '0'
 # Configuração básica
 bind = "0.0.0.0:8000"
 workers = multiprocessing.cpu_count() * 2 + 1
-worker_class = "gthread"
-threads = 2
 timeout = 120
-keepalive = 2
+keepalive = 5
 
 # Configuração de logs
 accesslog = "-"
@@ -45,4 +43,14 @@ worker_connections = 1000
 
 # Configurações de graceful shutdown
 graceful_timeout = 30
-forwarded_allow_ips = "*" 
+forwarded_allow_ips = "*"
+
+# Configurações do worker
+worker_class = "sync"
+threads = 2
+
+# Configurações de reload e debugging
+reload = True
+reload_engine = "auto"
+spew = False
+check_config = False 

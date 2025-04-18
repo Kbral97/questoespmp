@@ -556,6 +556,7 @@ def generate_questions_with_specialized_models(
     topic: str,
     num_questions: int,
     api_key: str,
+    num_subtopics: int = 1,
     callback=None,
     question_model=None,
     answer_model=None,
@@ -572,6 +573,7 @@ def generate_questions_with_specialized_models(
         topic (str): Tópico principal
         num_questions (int): Número de questões para gerar
         api_key (str, optional): Chave da API OpenAI
+        num_subtopics (int): Número de subtópicos a gerar (default: 1)
         callback (callable, optional): Função de callback para atualizar progresso
         question_model (str): Modelo para gerar perguntas
         answer_model (str): Modelo para gerar respostas
@@ -589,9 +591,13 @@ def generate_questions_with_specialized_models(
         # Verificar se todos os modelos necessários estão disponíveis
         if not all([question_model, answer_model, distractors_model]):
             logger.error("Modelos necessários não fornecidos")
-        if callback:
-            callback(0, "Erro: Não foi possível gerar questões")
+            if callback:
+                callback(0, "Erro: Não foi possível gerar questões")
             return []
+            
+        # Gerar subtópicos
+        subtopics = generate_subtopics(topic, num_subtopics)
+        logger.info(f"Subtópicos gerados: {subtopics}")
             
         # Obter chunks relevantes do banco de dados
         db = DatabaseManager()
@@ -605,18 +611,33 @@ def generate_questions_with_specialized_models(
         for chunk in relevant_chunks:
             context += f"\nTrecho do arquivo {chunk['file_name']}:\n{chunk['raw_text']}\n"
             
+        # Distribuir questões entre os subtópicos
+        questions_per_subtopic = num_questions // len(subtopics)
+        remaining_questions = num_questions % len(subtopics)
+        
         # Gerar questões
         questions = []
+        current_subtopic_index = 0
+        questions_for_current_subtopic = questions_per_subtopic + (1 if remaining_questions > 0 else 0)
+        
         for question_index in range(num_questions):
             try:
+                # Verificar se precisamos mudar para o próximo subtópico
+                if questions_for_current_subtopic == 0:
+                    current_subtopic_index += 1
+                    remaining_questions = max(0, remaining_questions - 1)
+                    questions_for_current_subtopic = questions_per_subtopic + (1 if remaining_questions > 0 else 0)
+                
+                current_subtopic = subtopics[current_subtopic_index]
+                
                 # Atualizar progresso
                 if callback:
                     progress = (question_index + 1) / num_questions
-                    callback(progress, f"Gerando questão {question_index + 1} de {num_questions}")
+                    callback(progress, f"Gerando questão {question_index + 1} de {num_questions} para {current_subtopic}")
                 
                 # Gerar pergunta e resposta correta
                 question_data = generate_question_with_ai(
-                    topic, 
+                    current_subtopic, 
                     context, 
                     get_openai_client(api_key), 
                     api_key,
@@ -641,7 +662,7 @@ def generate_questions_with_specialized_models(
                 correct_answer, explanation = answer_data
                 
                 # Gerar distratores
-                distractors, subtopic = generate_distractors_with_ai(
+                distractors, _ = generate_distractors_with_ai(
                     question_data['question'],
                     correct_answer,
                     context,
@@ -668,7 +689,7 @@ def generate_questions_with_specialized_models(
                     'correct_answer': 'A',  # Definir sempre como A e depois ajustar após embaralhar
                     'explanation': explanation,
                     'topic': topic,
-                    'subtopic': subtopic,
+                    'subtopic': current_subtopic,
                     'difficulty': question_data.get('difficulty', 1)
                 }
                 
@@ -683,6 +704,7 @@ def generate_questions_with_specialized_models(
                 # Validar qualidade da questão
                 if validate_question_quality(question):
                     questions.append(question)
+                    questions_for_current_subtopic -= 1
                     # Salvar no banco de dados
                     try:
                         db.save_question(question)
@@ -695,8 +717,8 @@ def generate_questions_with_specialized_models(
                 continue
         
         # Atualizar progresso final
-            if callback:
-                callback(1.0, f"Geração concluída: {len(questions)} questões geradas")
+        if callback:
+            callback(1.0, f"Geração concluída: {len(questions)} questões geradas")
                 
         logger.info(f"Geração concluída: {len(questions)} questões geradas")
         return questions
@@ -707,7 +729,7 @@ def generate_questions_with_specialized_models(
 
 def generate_subtopics(topic: str, num_subtopics: int) -> List[str]:
     """
-    Gera subtópicos para um tópico principal.
+    Gera subtópicos para um tópico principal usando a API da OpenAI.
     
     Args:
         topic: Tópico principal
@@ -716,8 +738,96 @@ def generate_subtopics(topic: str, num_subtopics: int) -> List[str]:
     Returns:
         Lista de subtópicos
     """
-    # Gerar subtópicos genéricos
-    return [f"Aspecto {i+1} de {topic}" for i in range(num_subtopics)]
+    try:
+        # Mapear tópicos principais do PMBOK para seus subtópicos conhecidos
+        known_subtopics = {
+            "Gerenciamento da Integração": [
+                "Desenvolver o Termo de Abertura do Projeto",
+                "Desenvolver o Plano de Gerenciamento do Projeto",
+                "Orientar e Gerenciar o Trabalho do Projeto",
+                "Gerenciar o Conhecimento do Projeto",
+                "Monitorar e Controlar o Trabalho do Projeto",
+                "Realizar o Controle Integrado de Mudanças",
+                "Encerrar o Projeto ou Fase"
+            ],
+            "Gerenciamento do Escopo": [
+                "Planejar o Gerenciamento do Escopo",
+                "Coletar os Requisitos",
+                "Definir o Escopo",
+                "Criar a EAP",
+                "Validar o Escopo",
+                "Controlar o Escopo"
+            ],
+            "Gerenciamento do Cronograma": [
+                "Planejar o Gerenciamento do Cronograma",
+                "Definir as Atividades",
+                "Sequenciar as Atividades",
+                "Estimar as Durações das Atividades",
+                "Desenvolver o Cronograma",
+                "Controlar o Cronograma"
+            ],
+            "Gerenciamento dos Custos": [
+                "Planejar o Gerenciamento dos Custos",
+                "Estimar os Custos",
+                "Determinar o Orçamento",
+                "Controlar os Custos"
+            ],
+            "Gerenciamento da Qualidade": [
+                "Planejar o Gerenciamento da Qualidade",
+                "Gerenciar a Qualidade",
+                "Controlar a Qualidade"
+            ],
+            "Gerenciamento dos Recursos": [
+                "Planejar o Gerenciamento dos Recursos",
+                "Estimar os Recursos das Atividades",
+                "Adquirir Recursos",
+                "Desenvolver a Equipe",
+                "Gerenciar a Equipe",
+                "Controlar os Recursos"
+            ],
+            "Gerenciamento das Comunicações": [
+                "Planejar o Gerenciamento das Comunicações",
+                "Gerenciar as Comunicações",
+                "Monitorar as Comunicações"
+            ],
+            "Gerenciamento dos Riscos": [
+                "Planejar o Gerenciamento dos Riscos",
+                "Identificar os Riscos",
+                "Realizar a Análise Qualitativa dos Riscos",
+                "Realizar a Análise Quantitativa dos Riscos",
+                "Planejar as Respostas aos Riscos",
+                "Implementar Respostas aos Riscos",
+                "Monitorar os Riscos"
+            ],
+            "Gerenciamento das Aquisições": [
+                "Planejar o Gerenciamento das Aquisições",
+                "Conduzir as Aquisições",
+                "Controlar as Aquisições"
+            ],
+            "Gerenciamento das Partes Interessadas": [
+                "Identificar as Partes Interessadas",
+                "Planejar o Engajamento das Partes Interessadas",
+                "Gerenciar o Engajamento das Partes Interessadas",
+                "Monitorar o Engajamento das Partes Interessadas"
+            ]
+        }
+        
+        # Se o tópico está no dicionário de subtópicos conhecidos
+        if topic in known_subtopics:
+            available_subtopics = known_subtopics[topic]
+            # Se pediu mais subtópicos do que existem, retorna todos
+            if num_subtopics >= len(available_subtopics):
+                return available_subtopics
+            # Caso contrário, retorna uma seleção aleatória
+            return random.sample(available_subtopics, num_subtopics)
+            
+        # Se não encontrou no dicionário, gera subtópicos genéricos
+        return [f"Aspecto {i+1} de {topic}" for i in range(num_subtopics)]
+        
+    except Exception as e:
+        logger.error(f"Erro ao gerar subtópicos: {e}")
+        # Em caso de erro, retorna subtópicos genéricos
+        return [f"Aspecto {i+1} de {topic}" for i in range(num_subtopics)]
 
 def generate_question_with_ai(topic: str, context: str, client: OpenAI, api_key: str, model: str = None) -> Optional[Dict]:
     """

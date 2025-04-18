@@ -1,0 +1,36 @@
+[Unit]
+Description=QuestoesPMP Gunicorn Service
+After=network.target
+
+[Service]
+User=questoespmp
+Group=questoespmp
+WorkingDirectory=/home/questoespmp/questoespmp
+Environment="PATH=/home/questoespmp/questoespmp/venv/bin"
+Environment="DISPLAY=:0"
+Environment="PYTHONUNBUFFERED=1"
+Environment="KIVY_NO_ARGS=1"
+Environment="KIVY_NO_CONSOLELOG=1"
+Environment="KIVY_NO_FILELOG=1"
+Environment="KIVY_NO_CONFIG=1"
+Environment="KIVY_NO_ENV_CONFIG=1"
+ExecStart=/home/questoespmp/questoespmp/venv/bin/gunicorn --config gunicorn_config.py wsgi:app
+Restart=always
+RestartSec=5
+StartLimitInterval=0
+
+[Install]
+[Unit]
+Description=QuestoesPMP Gunicorn Service
+After=network.target
+
+[Service]
+User=questoespmp
+Group=questoespmp
+WorkingDirectory=/home/questoespmp/questoespmp
+Environment="PATH=/home/questoespmp/questoespmp/venv/bin"
+ExecStart=/home/questoespmp/questoespmp/venv/bin/gunicorn --config gunicorn_config.py wsgi:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target 

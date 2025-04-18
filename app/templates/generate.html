@@ -80,7 +80,7 @@
                             </div>
 
                             <!-- Número de Questões -->
-                            <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
+                            <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-6">
                                 <div class="mdc-text-field mdc-text-field--outlined">
                                     <input type="number" class="mdc-text-field__input" id="numQuestions" min="1" max="10" required>
                                     <div class="mdc-notched-outline">
@@ -98,7 +98,26 @@
                                 </div>
                             </div>
 
-                            <!-- Botão Gerar -->
+                            <!-- Número de Sub-temas -->
+                            <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-6">
+                                <div class="mdc-text-field mdc-text-field--outlined">
+                                    <input type="number" class="mdc-text-field__input" id="numSubtopics" min="1" max="5" required>
+                                    <div class="mdc-notched-outline">
+                                        <div class="mdc-notched-outline__leading"></div>
+                                        <div class="mdc-notched-outline__notch">
+                                            <label for="numSubtopics" class="mdc-floating-label">Número de Sub-temas</label>
+                                        </div>
+                                        <div class="mdc-notched-outline__trailing"></div>
+                                    </div>
+                                </div>
+                                <div class="mdc-text-field-helper-line">
+                                    <div class="mdc-text-field-helper-text mdc-text-field-helper-text--error" aria-hidden="true">
+                                        Digite um número entre 1 e 5
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Botão de Gerar -->
                             <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
                                 <button type="submit" class="mdc-button mdc-button--raised">
                                     <span class="mdc-button__ripple"></span>
@@ -107,27 +126,6 @@
                             </div>
                         </div>
                     </form>
-                </div>
-            </div>
-        </div>
-
-        <!-- Progresso -->
-        <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12" id="progressSection" style="display: none;">
-            <div class="mdc-card">
-                <div class="mdc-card__content">
-                    <div class="mdc-linear-progress mdc-linear-progress--indeterminate">
-                        <div class="mdc-linear-progress__buffer">
-                            <div class="mdc-linear-progress__buffer-bar"></div>
-                            <div class="mdc-linear-progress__buffer-dots"></div>
-                        </div>
-                        <div class="mdc-linear-progress__bar mdc-linear-progress__primary-bar">
-                            <span class="mdc-linear-progress__bar-inner"></span>
-                        </div>
-                        <div class="mdc-linear-progress__bar mdc-linear-progress__secondary-bar">
-                            <span class="mdc-linear-progress__bar-inner"></span>
-                        </div>
-                    </div>
-                    <p id="progressText" class="mdc-typography--body1"></p>
                 </div>
             </div>
         </div>
@@ -146,6 +144,31 @@
     </div>
 </div>
 
+<!-- Progress Dialog -->
+<div class="mdc-dialog" id="progressDialog">
+    <div class="mdc-dialog__container">
+        <div class="mdc-dialog__surface">
+            <h2 class="mdc-dialog__title">Gerando Questões</h2>
+            <div class="mdc-dialog__content">
+                <div class="mdc-linear-progress mdc-linear-progress--indeterminate">
+                    <div class="mdc-linear-progress__buffer">
+                        <div class="mdc-linear-progress__buffer-bar"></div>
+                        <div class="mdc-linear-progress__buffer-dots"></div>
+                    </div>
+                    <div class="mdc-linear-progress__bar mdc-linear-progress__primary-bar">
+                        <span class="mdc-linear-progress__bar-inner"></span>
+                    </div>
+                    <div class="mdc-linear-progress__bar mdc-linear-progress__secondary-bar">
+                        <span class="mdc-linear-progress__bar-inner"></span>
+                    </div>
+                </div>
+                <p id="progressMessage">Preparando para gerar questões...</p>
+            </div>
+        </div>
+    </div>
+    <div class="mdc-dialog__scrim"></div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Inicializar componentes MDC
@@ -159,21 +182,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('generateForm');
     form.addEventListener('submit', function(e) {
         e.preventDefault();
-
-        const topic = document.querySelector('.mdc-select__selected-text').textContent.trim();
+        
+        const topic = document.querySelector('.mdc-select').value;
         const numQuestions = document.getElementById('numQuestions').value;
-
-        if (!topic || !numQuestions) {
-            alert('Por favor, preencha todos os campos.');
-            return;
-        }
-
-        // Mostrar seção de progresso
-        document.getElementById('progressSection').style.display = 'block';
-        document.getElementById('resultsSection').style.display = 'none';
-        document.getElementById('progressText').textContent = 'Gerando questões...';
-
-        // Enviar requisição para a API
+        const numSubtopics = document.getElementById('numSubtopics').value;
+        
+        // Mostrar diálogo de progresso
+        const progressDialog = new mdc.dialog.MDCDialog(document.getElementById('progressDialog'));
+        progressDialog.open();
+        
+        // Enviar requisição para gerar questões
         fetch('/api/generate', {
             method: 'POST',
             headers: {
@@ -181,25 +199,39 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             body: JSON.stringify({
                 topic: topic,
-                num_questions: parseInt(numQuestions)
+                num_questions: parseInt(numQuestions),
+                num_subtopics: parseInt(numSubtopics)
             })
         })
         .then(response => response.json())
         .then(data => {
-            // Esconder seção de progresso
-            document.getElementById('progressSection').style.display = 'none';
-            document.getElementById('resultsSection').style.display = 'block';
-
-            // Exibir questões geradas
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Mostrar questões geradas
             const questionsContainer = document.getElementById('generatedQuestions');
             questionsContainer.innerHTML = '';
-
+            
             data.questions.forEach((question, index) => {
                 const questionCard = document.createElement('div');
-                questionCard.className = 'mdc-card mdc-card--outlined';
-                questionCard.innerHTML = `
-                    <div class="mdc-card__content">
+                questionCard.className = 'mdc-card question-card';
+                questionCard.style.marginBottom = '1rem';
+                questionCard.style.padding = '1rem';
+                
+                const questionContent = `
+                    <div class="question-header">
                         <h3 class="mdc-typography--headline6">Questão ${index + 1}</h3>
+                        <div class="mdc-chip-set">
+                            <div class="mdc-chip">
+                                <div class="mdc-chip__text">Tópico: ${question.topic}</div>
+                            </div>
+                            <div class="mdc-chip">
+                                <div class="mdc-chip__text">Sub-tópico: ${question.subtopic}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="question-body">
                         <p class="mdc-typography--body1">${question.question}</p>
                         <div class="mdc-list">
                             ${question.options.map((option, i) => `
@@ -209,39 +241,82 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </div>
                             `).join('')}
                         </div>
+                    </div>
+                    <div class="question-footer">
                         <div class="mdc-card__actions">
-                            <div class="mdc-card__action-buttons">
-                                <button class="mdc-button mdc-button--outlined" onclick="showAnswer(${index})">
-                                    <span class="mdc-button__ripple"></span>
-                                    <span class="mdc-button__label">Mostrar Resposta</span>
-                                </button>
-                            </div>
+                            <button class="mdc-button mdc-button--outlined show-answer-btn" onclick="toggleAnswer(${index})">
+                                <span class="mdc-button__ripple"></span>
+                                <span class="mdc-button__label">Mostrar Resposta</span>
+                            </button>
                         </div>
-                        <div id="answer${index}" style="display: none;">
-                            <p class="mdc-typography--body1">
-                                <strong>Resposta correta:</strong> ${question.correct_answer}<br>
-                                <strong>Explicação:</strong> ${question.explanation}
-                            </p>
+                        <div class="answer-section" id="answer-${index}" style="display: none;">
+                            <div class="mdc-card__content" style="margin-top: 1rem;">
+                                <p class="mdc-typography--subtitle2">Resposta Correta: ${question.correct_answer}</p>
+                                <p class="mdc-typography--body2">Explicação: ${question.explanation}</p>
+                            </div>
                         </div>
                     </div>
                 `;
+                
+                questionCard.innerHTML = questionContent;
                 questionsContainer.appendChild(questionCard);
             });
+            
+            // Esconder diálogo de progresso e mostrar resultados
+            progressDialog.close();
+            document.getElementById('resultsSection').style.display = 'block';
+            
+            // Rolar para os resultados
+            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
         })
         .catch(error => {
-            console.error('Erro:', error);
-            document.getElementById('progressText').textContent = 'Erro ao gerar questões. Tente novamente.';
+            progressDialog.close();
+            alert('Erro ao gerar questões: ' + error.message);
         });
     });
 });
 
-function showAnswer(index) {
-    const answerDiv = document.getElementById(`answer${index}`);
-    if (answerDiv.style.display === 'none') {
-        answerDiv.style.display = 'block';
+// Função para alternar a visibilidade da resposta
+function toggleAnswer(index) {
+    const answerSection = document.getElementById(`answer-${index}`);
+    const button = event.currentTarget;
+    
+    if (answerSection.style.display === 'none') {
+        answerSection.style.display = 'block';
+        button.querySelector('.mdc-button__label').textContent = 'Ocultar Resposta';
     } else {
-        answerDiv.style.display = 'none';
+        answerSection.style.display = 'none';
+        button.querySelector('.mdc-button__label').textContent = 'Mostrar Resposta';
     }
 }
 </script>
+
+<style>
+.question-card {
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 4px;
+}
+
+.question-header {
+    margin-bottom: 1rem;
+}
+
+.question-body {
+    margin-bottom: 1rem;
+}
+
+.mdc-chip-set {
+    margin-top: 0.5rem;
+}
+
+.mdc-chip {
+    margin-right: 0.5rem;
+}
+
+.answer-section {
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+    padding-top: 1rem;
+    margin-top: 1rem;
+}
+</style>
 {% endblock %} 
