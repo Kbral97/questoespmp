@@ -9,14 +9,19 @@ import sys
 import os
 from dotenv import load_dotenv, set_key
 from pathlib import Path
+from datetime import datetime
+import logging
+
+# Importar usando caminho relativo
+from .api.openai_client import generate_questions, generate_questions_with_specialized_models
+from .database.db_manager import DatabaseManager
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Adicionar o diretório src ao PYTHONPATH
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src'))
-
-# Importar usando caminho absoluto
-from questoespmp2.api.openai_client import generate_questions, generate_questions_with_specialized_models
-from questoespmp2.database.db_manager import DatabaseManager
-import logging
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -94,72 +99,66 @@ def get_statistics():
 @main.route('/api/generate', methods=['POST'])
 @login_required
 def generate():
+    logger.info("Received generate request")
     try:
-        # Log dos dados recebidos
-        logging.info(f"Dados recebidos na requisição: {request.get_json()}")
-        
-        # Verificar se a API key está configurada
-        api_key = os.getenv('OPENAI_API_KEY')
-        if not api_key:
-            return jsonify({'error': 'API key não configurada'}), 500
-
         data = request.get_json()
-        topic = data.get('topic')
-        num_questions = data.get('num_questions')
-        num_subtopics = data.get('num_subtopics', 1)  # Default para 1 se não especificado
+        logger.info(f"Request data: {data}")
         
-        # Log dos dados processados
-        logging.info(f"Dados processados: topic={topic}, num_questions={num_questions}, num_subtopics={num_subtopics}")
+        if not data:
+            logger.error("No JSON data received")
+            return jsonify({'error': 'No JSON data received'}), 400
 
-        if not topic or not num_questions:
-            logging.error(f"Campos obrigatórios faltando: topic={topic}, num_questions={num_questions}")
-            return jsonify({'error': 'Tópico e número de questões são obrigatórios'}), 400
+        # Validate required fields
+        required_fields = ['topic', 'num_questions']
+        for field in required_fields:
+            if field not in data:
+                logger.error(f"Missing required field: {field}")
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+            if not data[field]:
+                logger.error(f"Empty value for required field: {field}")
+                return jsonify({'error': f'Empty value for required field: {field}'}), 400
 
-        # Gerar questões usando a implementação existente
-        questions = generate_questions_with_specialized_models(
-            topic=topic,
-            num_questions=num_questions,
-            num_subtopics=num_subtopics,
-            api_key=api_key,
-            callback=lambda progress, message: logging.info(f"Progresso: {progress}% - {message}")
-        )
+        topic = data['topic']
+        logger.info(f"Topic received: {topic}")
 
-        if not questions:
-            logging.error("Não foi possível gerar questões")
-            return jsonify({'error': 'Não foi possível gerar questões'}), 500
+        try:
+            num_questions = int(data['num_questions'])
+            num_subtopics = int(data.get('num_subtopics', 3))  # Default to 3 if not provided
+        except ValueError:
+            logger.error("Invalid number format for num_questions or num_subtopics")
+            return jsonify({'error': 'Invalid number format'}), 400
 
-        # Log das questões geradas
-        logging.info(f"Questões geradas com sucesso: {len(questions)} questões")
-
-        # Salvar questões no banco de dados
-        for question_data in questions:
-            question = Question(
-                content=question_data['question'],
-                answer=question_data['correct_answer'],
-                domain=topic,
-                process_group=question_data.get('subtopic', ''),
-                user_id=current_user.id
-            )
-            db.session.add(question)
-
-        # Atualizar estatísticas
-        stats = Statistics.query.filter_by(user_id=current_user.id).first()
-        if not stats:
-            stats = Statistics(user_id=current_user.id)
-            db.session.add(stats)
+        # Validate ranges
+        if not (1 <= num_questions <= 10):
+            logger.error(f"num_questions out of range: {num_questions}")
+            return jsonify({'error': 'Number of questions must be between 1 and 10'}), 400
         
-        stats.total_questions += len(questions)
-        db.session.commit()
+        if not (1 <= num_subtopics <= 5):
+            logger.error(f"num_subtopics out of range: {num_subtopics}")
+            return jsonify({'error': 'Number of subtopics must be between 1 and 5'}), 400
 
-        return jsonify({
-            'success': True,
-            'questions': questions
-        })
-
+        logger.info(f"Generating {num_questions} questions for topic: {topic} with {num_subtopics} subtopics")
+        
+        try:
+            questions = generate_questions(topic=topic, num_questions=num_questions, num_subtopics=num_subtopics)
+            
+            # Update user statistics
+            if current_user.is_authenticated:
+                stats = Statistics.query.filter_by(user_id=current_user.id).first()
+                if not stats:
+                    stats = Statistics(user_id=current_user.id)
+                    db.session.add(stats)
+                stats.total_questions += num_questions
+                stats.last_updated = datetime.utcnow()
+                db.session.commit()
+            
+            return jsonify({'questions': questions})
+        except Exception as e:
+            logger.error(f"Error generating questions: {str(e)}")
+            return jsonify({'error': 'Error generating questions'}), 500
     except Exception as e:
-        logging.error(f'Erro ao gerar questões: {str(e)}')
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error processing request: {str(e)}")
+        return jsonify({'error': 'Error processing request'}), 500
 
 @main.route('/settings', methods=['GET', 'POST'])
 @login_required

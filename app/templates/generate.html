@@ -201,24 +201,44 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('Inicializando componentes...');
+    
     // Inicializar componentes MDC
     const textFields = document.querySelectorAll('.mdc-text-field');
     textFields.forEach(textField => mdc.textField.MDCTextField.attachTo(textField));
 
-    const selects = document.querySelectorAll('.mdc-select');
-    selects.forEach(select => mdc.select.MDCSelect.attachTo(select));
+    // Inicializar select com referência global
+    const topicSelect = document.querySelector('.mdc-select');
+    console.log('Elemento select encontrado:', topicSelect);
+    
+    window.mdcTopicSelect = mdc.select.MDCSelect.attachTo(topicSelect);
+    console.log('Select MDC inicializado');
+    
+    window.mdcTopicSelect.listen('MDCSelect:change', () => {
+        console.log('Select alterado. Novo valor:', window.mdcTopicSelect.value);
+    });
 
     // Manipular envio do formulário
     const form = document.getElementById('generateForm');
     form.addEventListener('submit', function(e) {
         e.preventDefault();
         
-        const topic = document.querySelector('.mdc-select').value;
+        // Verificar se o select está inicializado
+        if (!window.mdcTopicSelect) {
+            console.error('Select não inicializado');
+            alert('Erro: Componente de seleção não inicializado corretamente. Por favor, recarregue a página.');
+            return;
+        }
+        
+        const topic = window.mdcTopicSelect.value;
+        console.log('Tópico no envio:', topic);
+
         const numQuestions = document.getElementById('numQuestions').value;
         const numSubtopics = document.getElementById('numSubtopics').value;
 
         // Validar campos antes de enviar
         if (!topic) {
+            console.log('Tópico não selecionado ou valor inválido');
             alert('Por favor, selecione um tópico.');
             return;
         }
@@ -251,6 +271,11 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => {
             if (!response.ok) {
+                if (response.status === 401) {
+                    // Redirecionar para a página de login
+                    window.location.href = '/login';
+                    throw new Error('Sessão expirada. Por favor, faça login novamente.');
+                }
                 return response.json().then(data => {
                     throw new Error(data.error || 'Erro ao gerar questões');
                 });

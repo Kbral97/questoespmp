@@ -7,6 +7,7 @@ from datetime import datetime
 import time
 import os
 from openai import OpenAI
+from flask import current_app as app
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -252,52 +253,87 @@ def generate_question(topic: str, subtopic: str, api_key: Optional[str] = None) 
         logger.error(f"Erro ao gerar questão: {str(e)}")
         raise
 
-def generate_questions(topic: str, num_questions: int = 5, api_key: Optional[str] = None) -> List[Dict]:
+def generate_questions(topic, num_questions=5, num_subtopics=3, api_key=None):
     """
-    Gera múltiplas questões para um tópico específico.
+    Generate questions about a topic using OpenAI's API.
     
     Args:
-        topic: Tópico principal (people, process, business_environment)
-        num_questions: Número de questões a serem geradas (padrão: 5)
-        api_key: Chave da API da OpenAI (opcional)
-        
+        topic (str): The main topic to generate questions about
+        num_questions (int): Number of questions to generate (default: 5)
+        num_subtopics (int): Number of subtopics to cover (default: 3)
+        api_key (str, optional): OpenAI API key. If not provided, uses environment variable.
+    
     Returns:
-        Lista de dicionários contendo as questões geradas
-        
-    Raises:
-        ValueError: Se os parâmetros forem inválidos
-        Exception: Se houver erro na geração das questões
+        list: List of dictionaries containing generated questions
     """
-    if not isinstance(num_questions, int) or num_questions < 1:
-        raise ValueError("Número de questões deve ser um inteiro positivo")
-    
-    questions = []
-    difficulties = ['easy', 'medium', 'hard']
-    
     try:
-        for i in range(num_questions):
-            # Seleciona um sub-tópico aleatório
-            subtopic = select_subtopic(topic)
+        # Validate input
+        if not isinstance(topic, str) or not topic.strip():
+            raise ValueError("Topic must be a non-empty string")
+        if not isinstance(num_questions, int) or num_questions < 1:
+            raise ValueError("num_questions must be a positive integer")
+        if not isinstance(num_subtopics, int) or num_subtopics < 1:
+            raise ValueError("num_subtopics must be a positive integer")
             
-            # Distribui as dificuldades de forma equilibrada
-            difficulty = difficulties[i % len(difficulties)]
+        # Use environment API key if none provided
+        if not api_key:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("OpenAI API key not found")
+        
+        # Initialize OpenAI client
+        client = OpenAI(api_key=api_key)
+        
+        # Generate subtopics first
+        subtopics_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{
+                "role": "system",
+                "content": "You are a PMP certification expert. Generate specific subtopics for the given topic."
+            }, {
+                "role": "user",
+                "content": f"Generate {num_subtopics} specific subtopics for the PMP topic: {topic}. Return only the subtopics as a comma-separated list."
+            }]
+        )
+        
+        subtopics = subtopics_response.choices[0].message.content.split(',')
+        subtopics = [s.strip() for s in subtopics[:num_subtopics]]
+        
+        # Calculate questions per subtopic
+        questions_per_subtopic = num_questions // len(subtopics)
+        extra_questions = num_questions % len(subtopics)
+        
+        questions = []
+        for i, subtopic in enumerate(subtopics):
+            # Add extra question to early subtopics if needed
+            current_questions = questions_per_subtopic + (1 if i < extra_questions else 0)
             
-            # Gera a questão
-            question = generate_question(
-                topic=topic,
-                subtopic=subtopic,
-                difficulty=difficulty,
-                api_key=api_key
-            )
-            
-            questions.append(question)
-            
-            # Adiciona um pequeno delay entre as requisições para evitar rate limiting
-            if i < num_questions - 1:
-                time.sleep(1)
+            if current_questions > 0:
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{
+                        "role": "system",
+                        "content": "You are a PMP certification expert. Generate multiple-choice questions."
+                    }, {
+                        "role": "user",
+                        "content": f"Generate {current_questions} multiple-choice PMP questions about {subtopic} (related to {topic}). "
+                                 f"For each question, provide 4 options (A, B, C, D) and mark the correct answer. "
+                                 f"Make questions of varying difficulty. Format as JSON array with 'question', 'options', 'correct_answer', and 'subtopic' fields."
+                    }]
+                )
+                
+                try:
+                    # Parse the response and extract questions
+                    content = response.choices[0].message.content
+                    subtopic_questions = json.loads(content)
+                    if isinstance(subtopic_questions, list):
+                        questions.extend(subtopic_questions)
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse questions for subtopic {subtopic}")
+                    continue
         
         return questions
         
     except Exception as e:
-        logger.error(f"Erro ao gerar questões: {str(e)}")
+        logger.error(f"Error in generate_questions: {str(e)}")
         raise 
