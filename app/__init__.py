@@ -2,16 +2,11 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 import os
-import kivymd
 import logging
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Log do caminho do KivyMD
-logger.info(f"KivyMD path: {kivymd.__path__}")
-logger.info(f"Label path: {os.path.join(kivymd.__path__[0], 'uix', 'label', 'label.kv')}")
 
 # Inicialização das extensões
 db = SQLAlchemy()
