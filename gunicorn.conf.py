@@ -34,7 +34,8 @@ keepalive = 5
 # Configuração de logs
 accesslog = "-"
 errorlog = "-"
-loglevel = "info"
+loglevel = "debug"
+access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
 
 # Configurações de segurança
 limit_request_line = 4094
@@ -62,18 +63,13 @@ check_config = False
 
 # Configurações do ambiente
 raw_env = [
-    f"PYTHONPATH={os.getcwd()}",
+    "PYTHONPATH=/home/gabriel_cg_cabral/questoespmp:/home/gabriel_cg_cabral/questoespmp/app",
     "KIVY_NO_ARGS=1",
     "KIVY_NO_CONSOLELOG=1",
     "KIVY_NO_FILELOG=1",
-    "KIVY_GL_BACKEND=sdl2",
-    "KIVY_WINDOW=sdl2",
-    "KIVY_IMAGE=sdl2",
-    "KIVY_AUDIO=sdl2",
-    "KIVY_VIDEO=ffpyplayer",
-    "KIVY_INPUT=sdl2",
-    "KIVY_MTDEV=0",
-    "KIVY_USE_INPUT=1",
-    "KIVY_USE_MOUSE=1",
-    "KIVY_USE_TOUCH=0"
+    "KIVY_NO_DEFAULT_CONFIG=1",
+    "KIVY_NO_ARGS=1",
+    "KIVY_NO_CONSOLELOG=1",
+    "KIVY_NO_FILELOG=1",
+    "KIVY_NO_DEFAULT_CONFIG=1"
 ] 
