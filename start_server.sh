@@ -13,11 +13,17 @@ sudo apt-get install -y libsdl2-gfx-dev libsdl2-net-dev
 pip install gunicorn
 
 # Configurar PYTHONPATH corretamente
-export PYTHONPATH=$(pwd):$PYTHONPATH
+export PYTHONPATH=$(pwd)
 echo "PYTHONPATH: $PYTHONPATH"
 echo "Current directory: $(pwd)"
 echo "Directory contents:"
 ls -la
+echo "App directory contents:"
+ls -la app/
+echo "Database directory contents:"
+ls -la app/database/
+echo "Python path:"
+python -c "import sys; print('\n'.join(sys.path))"
 
 # Configurar variáveis de ambiente do Kivy
 export KIVY_NO_ARGS=1
