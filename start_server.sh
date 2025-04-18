@@ -14,6 +14,10 @@ pip install gunicorn
 
 # Configurar PYTHONPATH corretamente
 export PYTHONPATH=$(pwd):$PYTHONPATH
+echo "PYTHONPATH: $PYTHONPATH"
+echo "Current directory: $(pwd)"
+echo "Directory contents:"
+ls -la
 
 # Configurar variáveis de ambiente do Kivy
 export KIVY_NO_ARGS=1
@@ -30,5 +34,5 @@ export KIVY_USE_INPUT=1
 export KIVY_USE_MOUSE=1
 export KIVY_USE_TOUCH=0
 
-# Iniciar o servidor Gunicorn
-gunicorn --config gunicorn.conf.py wsgi:app 
+# Iniciar o servidor Gunicorn com PYTHONPATH explícito
+PYTHONPATH=$(pwd) gunicorn --config gunicorn.conf.py wsgi:app 

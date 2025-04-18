@@ -1,6 +1,10 @@
 import os
 import multiprocessing
 
+# Configurar PYTHONPATH
+current_dir = os.path.dirname(os.path.abspath(__file__))
+os.environ['PYTHONPATH'] = current_dir
+
 # Configurações do Kivy para modo headless
 os.environ['KIVY_NO_ARGS'] = '1'
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
