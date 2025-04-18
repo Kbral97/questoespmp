@@ -25,6 +25,10 @@ ls -la app/database/
 echo "Python path:"
 python -c "import sys; print('\n'.join(sys.path))"
 
+# Testar importação do módulo
+echo "Testando importação do módulo:"
+python -c "import app.database.db_manager; print('Importação bem-sucedida')"
+
 # Configurar variáveis de ambiente do Kivy
 export KIVY_NO_ARGS=1
 export KIVY_NO_CONSOLELOG=1
