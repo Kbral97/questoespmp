@@ -1,7 +1,15 @@
 #!/bin/bash
 
 # Ativar ambiente virtual
-source venv/bin/activate
+if [ -d "venv" ]; then
+    source venv/bin/activate
+    echo "Ambiente virtual ativado"
+else
+    echo "Criando ambiente virtual..."
+    python -m venv venv
+    source venv/bin/activate
+    echo "Ambiente virtual criado e ativado"
+fi
 
 # Instalar dependências do sistema
 sudo apt-get update
@@ -9,7 +17,9 @@ sudo apt-get install -y libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-
 sudo apt-get install -y libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev zlib1g-dev
 sudo apt-get install -y libsdl2-gfx-dev libsdl2-net-dev
 
-# Instalar Gunicorn se não estiver instalado
+# Instalar dependências Python
+echo "Instalando dependências Python..."
+pip install -r requirements.txt
 pip install gunicorn
 
 # Configurar PYTHONPATH corretamente
@@ -45,4 +55,5 @@ export KIVY_USE_MOUSE=1
 export KIVY_USE_TOUCH=0
 
 # Iniciar o servidor Gunicorn com PYTHONPATH explícito
+echo "Iniciando servidor Gunicorn..."
 PYTHONPATH=$(pwd) gunicorn --config gunicorn.conf.py wsgi:app 

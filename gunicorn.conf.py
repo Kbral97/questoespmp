@@ -3,7 +3,8 @@ import multiprocessing
 
 # Configurar PYTHONPATH
 current_dir = os.path.dirname(os.path.abspath(__file__))
-os.environ['PYTHONPATH'] = current_dir
+app_dir = os.path.join(current_dir, 'app')
+os.environ['PYTHONPATH'] = f"{current_dir}:{app_dir}"
 
 # Configurações do Kivy para modo headless
 os.environ['KIVY_NO_ARGS'] = '1'
@@ -50,11 +51,29 @@ graceful_timeout = 30
 forwarded_allow_ips = "*"
 
 # Configurações do worker
-worker_class = "sync"
+worker_class = "gthread"
 threads = 2
 
 # Configurações de reload e debugging
 reload = True
 reload_engine = "auto"
 spew = False
-check_config = False 
+check_config = False
+
+# Configurações do ambiente
+raw_env = [
+    f"PYTHONPATH={os.getcwd()}",
+    "KIVY_NO_ARGS=1",
+    "KIVY_NO_CONSOLELOG=1",
+    "KIVY_NO_FILELOG=1",
+    "KIVY_GL_BACKEND=sdl2",
+    "KIVY_WINDOW=sdl2",
+    "KIVY_IMAGE=sdl2",
+    "KIVY_AUDIO=sdl2",
+    "KIVY_VIDEO=ffpyplayer",
+    "KIVY_INPUT=sdl2",
+    "KIVY_MTDEV=0",
+    "KIVY_USE_INPUT=1",
+    "KIVY_USE_MOUSE=1",
+    "KIVY_USE_TOUCH=0"
+] 
