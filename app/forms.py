@@ -1,15 +1,15 @@
 from flask_wtf import FlaskForm
-from wtforms import PasswordField, SubmitField
-from wtforms.validators import DataRequired, Length, EqualTo
+from wtforms import StringField, PasswordField, BooleanField, SubmitField
+from wtforms.validators import DataRequired, Length, Email
+
+class LoginForm(FlaskForm):
+    username = StringField('Usuário', validators=[DataRequired(), Length(min=3, max=80)])
+    password = PasswordField('Senha', validators=[DataRequired(), Length(min=6)])
+    remember_me = BooleanField('Lembrar-me')
+    submit = SubmitField('Entrar')
 
 class ChangePasswordForm(FlaskForm):
     current_password = PasswordField('Senha Atual', validators=[DataRequired()])
-    new_password = PasswordField('Nova Senha', validators=[
-        DataRequired(),
-        Length(min=6, message='A senha deve ter pelo menos 6 caracteres')
-    ])
-    confirm_password = PasswordField('Confirmar Nova Senha', validators=[
-        DataRequired(),
-        EqualTo('new_password', message='As senhas não coincidem')
-    ])
-    submit = SubmitField('Salvar Alterações') 
+    new_password = PasswordField('Nova Senha', validators=[DataRequired(), Length(min=6)])
+    confirm_password = PasswordField('Confirmar Nova Senha', validators=[DataRequired(), Length(min=6)])
+    submit = SubmitField('Alterar Senha') 

@@ -1,7 +1,9 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, current_app, send_from_directory
 from flask_login import login_required, current_user, login_user, logout_user
+from werkzeug.urls import url_parse
 from app import db
-from app.models import User, Question, Statistics
+from app.models import User, Question, Statistics, TextChunk
+from app.forms import LoginForm, ChangePasswordForm
 import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from .forms import ChangePasswordForm
@@ -11,6 +13,9 @@ from dotenv import load_dotenv, set_key
 from pathlib import Path
 from datetime import datetime
 import logging
+import PyPDF2
+import tempfile
+from werkzeug.utils import secure_filename
 
 # Importar usando caminho relativo
 from .api.openai_client import generate_questions, generate_questions_with_specialized_models
@@ -37,15 +42,26 @@ def index():
 
 @main.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
-        if user and user.password_hash == password:  # Em produção, use hashing adequado
-            login_user(user)
-            return redirect(url_for('main.index'))
-        flash('Usuário ou senha inválidos')
-    return render_template('login.html')
+    if current_user.is_authenticated:
+        return redirect(url_for('main.index'))
+        
+    form = LoginForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(username=form.username.data).first()
+        if user is None or not user.check_password(form.password.data):
+            flash('Usuário ou senha inválidos', 'error')
+            logger.warning(f"Falha no login para usuário: {form.username.data}")
+            return redirect(url_for('main.login'))
+            
+        login_user(user, remember=form.remember_me.data)
+        logger.info(f"Login bem-sucedido para usuário: {form.username.data}")
+        
+        next_page = request.args.get('next')
+        if not next_page or url_parse(next_page).netloc != '':
+            next_page = url_for('main.index')
+        return redirect(next_page)
+        
+    return render_template('login.html', form=form)
 
 @main.route('/logout')
 @login_required
@@ -268,4 +284,152 @@ def api_report_question():
 def api_statistics_web():
     db = DatabaseManager()
     stats = db.get_statistics()
-    return stats 
+    return stats
+
+@main.route('/api/process-documents', methods=['POST'])
+@login_required
+def process_documents():
+    try:
+        data = request.get_json()
+        if not data or 'documents' not in data:
+            return jsonify({'error': 'Dados inválidos'}), 400
+            
+        documents = data['documents']
+        processed_documents = []
+        
+        for doc_path in documents:
+            try:
+                # Caminho completo do arquivo
+                full_path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'resumos', doc_path)
+                
+                if not os.path.exists(full_path):
+                    continue
+                    
+                # Extrair texto do PDF
+                text = extract_text_from_pdf(full_path)
+                
+                # Dividir em chunks
+                chunks = split_text_into_chunks(text)
+                
+                # Processar cada chunk com a IA
+                processed_chunks = process_chunks_with_ai(chunks)
+                
+                # Obter o título do documento (nome do arquivo sem extensão)
+                document_title = os.path.splitext(os.path.basename(doc_path))[0]
+                
+                # Deletar chunks antigos do mesmo documento
+                TextChunk.query.filter_by(
+                    document_title=document_title,
+                    user_id=current_user.id
+                ).delete()
+                
+                # Salvar novos chunks no banco de dados
+                for chunk, processed in zip(chunks, processed_chunks):
+                    text_chunk = TextChunk(
+                        document_title=document_title,
+                        chunk_text=chunk,
+                        processed_text=processed['processed'],
+                        user_id=current_user.id
+                    )
+                    db.session.add(text_chunk)
+                
+                db.session.commit()
+                
+                processed_documents.append({
+                    'path': doc_path,
+                    'status': 'Processado',
+                    'processed_date': datetime.now().isoformat()
+                })
+                
+            except Exception as e:
+                current_app.logger.error(f'Erro ao processar documento {doc_path}: {str(e)}')
+                db.session.rollback()
+                continue
+                
+        return jsonify({
+            'success': True,
+            'processed_documents': processed_documents
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Erro no processamento de documentos: {str(e)}')
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    with open(pdf_path, 'rb') as file:
+        reader = PyPDF2.PdfReader(file)
+        for page in reader.pages:
+            text += page.extract_text()
+    return text
+
+def split_text_into_chunks(text, chunk_size=1000):
+    words = text.split()
+    chunks = []
+    current_chunk = []
+    current_size = 0
+    
+    for word in words:
+        if current_size + len(word) > chunk_size:
+            chunks.append(' '.join(current_chunk))
+            current_chunk = [word]
+            current_size = len(word)
+        else:
+            current_chunk.append(word)
+            current_size += len(word) + 1
+            
+    if current_chunk:
+        chunks.append(' '.join(current_chunk))
+        
+    return chunks
+
+def process_chunks_with_ai(chunks):
+    client = get_openai_client()
+    processed_chunks = []
+    
+    for chunk in chunks:
+        try:
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": "Você é um assistente que processa textos técnicos."},
+                    {"role": "user", "content": f"Processe o seguinte texto e extraia informações relevantes:\n\n{chunk}"}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+            
+            processed_chunks.append({
+                'original': chunk,
+                'processed': response.choices[0].message.content
+            })
+            
+        except Exception as e:
+            current_app.logger.error(f'Erro ao processar chunk com IA: {str(e)}')
+            continue
+            
+    return processed_chunks
+
+@main.route('/api/document-chunks/<document_title>')
+@login_required
+def get_document_chunks(document_title):
+    try:
+        chunks = TextChunk.query.filter_by(
+            document_title=document_title,
+            user_id=current_user.id
+        ).all()
+        
+        return jsonify({
+            'success': True,
+            'chunks': [{
+                'id': chunk.id,
+                'chunk_text': chunk.chunk_text,
+                'processed_text': chunk.processed_text,
+                'created_at': chunk.created_at.isoformat()
+            } for chunk in chunks]
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f'Erro ao buscar chunks do documento {document_title}: {str(e)}')
+        return jsonify({'error': str(e)}), 500 
