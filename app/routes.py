@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, current_app, send_from_directory
 from flask_login import login_required, current_user, login_user, logout_user
-from werkzeug.urls import url_parse
+from urllib.parse import urlparse
 from app import db
 from app.models import User, Question, Statistics, TextChunk
 from app.forms import LoginForm, ChangePasswordForm
@@ -57,7 +57,7 @@ def login():
         logger.info(f"Login bem-sucedido para usuário: {form.username.data}")
         
         next_page = request.args.get('next')
-        if not next_page or url_parse(next_page).netloc != '':
+        if not next_page or urlparse(next_page).netloc != '':
             next_page = url_for('main.index')
         return redirect(next_page)
         
