@@ -8,6 +8,9 @@ import platform
 env_path = Path('.') / '.env'
 load_dotenv(env_path)
 
+# Obter o diretório atual
+BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+
 class Config:
     """Configurações da aplicação."""
     
@@ -17,11 +20,8 @@ class Config:
     DEBUG = os.getenv('FLASK_DEBUG', '0') == '1'
     
     # Configurações do banco de dados
-    if platform.system() == 'Windows':
-        SQLALCHEMY_DATABASE_URI = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///D:/questoespmp/instance/questoespmp.db')
-    else:
-        SQLALCHEMY_DATABASE_URI = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///instance/questoespmp.db')
-    
+    DB_PATH = os.path.join(BASE_DIR, 'instance', 'questoespmp.db')
+    SQLALCHEMY_DATABASE_URI = f'sqlite:///{DB_PATH}'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Configurações da API OpenAI
