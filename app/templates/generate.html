@@ -258,7 +258,13 @@ document.addEventListener('DOMContentLoaded', function() {
         progressDialog.open();
         
         // Enviar requisição para gerar questões
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        if (!csrfMeta) {
+            alert('Erro interno: CSRF token não encontrado no template.');
+            progressDialog.close();
+            return;
+        }
+        const csrfToken = csrfMeta.getAttribute('content');
         fetch('/api/generate', {
             method: 'POST',
             headers: {
