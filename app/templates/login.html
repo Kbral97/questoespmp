@@ -32,8 +32,8 @@
 
             <div class="card">
                 <div class="card-body">
-                    <form method="POST">
-                        {{ form.csrf_token }}
+                    <form method="POST" action="{{ url_for('main.login') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="mb-3">
                             {{ form.username.label(class="form-label") }}
                             {{ form.username(class="form-control") }}

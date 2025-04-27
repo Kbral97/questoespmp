@@ -33,6 +33,11 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
     PERMANENT_SESSION_LIFETIME = 3600  # 1 hora
     
+    # Configurações de CSRF
+    WTF_CSRF_ENABLED = True
+    WTF_CSRF_SECRET_KEY = SECRET_KEY
+    WTF_CSRF_TIME_LIMIT = 3600  # 1 hora
+    
     @classmethod
     def validate_config(cls):
         """Valida as configurações necessárias."""
