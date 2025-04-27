@@ -7,8 +7,17 @@ src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
 sys.path.append(src_path)
 
 # Configurar logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
+
+# Log environment variables
+logger.info("Environment variables:")
+logger.info(f"FLASK_ENV: {os.getenv('FLASK_ENV', 'Not set')}")
+logger.info(f"FLASK_DEBUG: {os.getenv('FLASK_DEBUG', 'Not set')}")
+logger.info(f"PYTHONPATH: {sys.path}")
 
 # Desabilita completamente o parser de argumentos do Kivy
 os.environ['KIVY_NO_ARGS'] = '1'
@@ -28,4 +37,6 @@ app = create_app()
 
 if __name__ == "__main__":
     logger.info("Iniciando o servidor Flask...")
+    logger.info(f"Database path: {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'questoespmp.db')}")
+    logger.info(f"Servidor rodando em: http://0.0.0.0:5000")
     app.run(debug=True, host='0.0.0.0', port=5000) 
