@@ -28,15 +28,16 @@ class Config:
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
     
     # Configurações de segurança
-    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_SECURE = False  # Alterado para False para desenvolvimento
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = 'Lax'
+    SESSION_COOKIE_SAMESITE = None  # Alterado para None para desenvolvimento
     PERMANENT_SESSION_LIFETIME = 3600  # 1 hora
     
     # Configurações de CSRF
     WTF_CSRF_ENABLED = True
     WTF_CSRF_SECRET_KEY = SECRET_KEY
     WTF_CSRF_TIME_LIMIT = 3600  # 1 hora
+    WTF_CSRF_SSL_STRICT = False  # Adicionado para desenvolvimento
     
     @classmethod
     def validate_config(cls):
