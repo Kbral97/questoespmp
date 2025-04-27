@@ -200,7 +200,7 @@ def change_api_key():
             set_key(env_path, 'OTHER_API_KEY', other_api_key)
 
         flash('Configurações salvas com sucesso!', 'success')
-        return redirect(url_for('main.settings'))
+        return redirect(url_for('main.change_api_key'))
 
     return render_template(
         'settings.html',
