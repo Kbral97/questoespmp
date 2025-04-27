@@ -3,7 +3,7 @@ from flask_login import login_required, current_user, login_user, logout_user
 from urllib.parse import urlparse
 from app import db
 from app.models import User, Question, Statistics, TextChunk
-from app.forms import LoginForm, ChangePasswordForm
+from app.forms import LoginForm, ChangePasswordForm, ChangeApiKeyForm
 import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from .forms import ChangePasswordForm
