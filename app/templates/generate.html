@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 
+{% block head %}
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+{% endblock %}
+
 {% block content %}
 <div class="mdc-layout-grid">
     <div class="mdc-layout-grid__inner">
