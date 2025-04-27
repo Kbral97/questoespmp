@@ -16,7 +16,7 @@ class Config:
     DEBUG = os.getenv('FLASK_DEBUG', '0') == '1'
     
     # Configurações do banco de dados
-    SQLALCHEMY_DATABASE_URI = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///instance/questoespmp.db')
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///D:/questoespmp/instance/questoespmp.db'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Configurações da API OpenAI

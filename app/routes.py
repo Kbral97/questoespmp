@@ -18,7 +18,7 @@ import tempfile
 from werkzeug.utils import secure_filename
 
 # Importar usando caminho relativo
-from .api.openai_client import generate_questions, generate_questions_with_specialized_models
+from .openai_client import generate_questions, generate_questions_with_specialized_models
 from .database.db_manager import DatabaseManager
 
 # Configurar logging

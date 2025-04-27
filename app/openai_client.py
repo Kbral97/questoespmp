@@ -8,6 +8,7 @@ import time
 import os
 from openai import OpenAI
 from flask import current_app as app
+from app.database.db_manager import DatabaseManager
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -256,84 +257,192 @@ def generate_question(topic: str, subtopic: str, api_key: Optional[str] = None) 
 def generate_questions(topic, num_questions=5, num_subtopics=3, api_key=None):
     """
     Generate questions about a topic using OpenAI's API.
-    
-    Args:
-        topic (str): The main topic to generate questions about
-        num_questions (int): Number of questions to generate (default: 5)
-        num_subtopics (int): Number of subtopics to cover (default: 3)
-        api_key (str, optional): OpenAI API key. If not provided, uses environment variable.
-    
-    Returns:
-        list: List of dictionaries containing generated questions
     """
+    logger.info("=== Iniciando geração de questões via OpenAI ===")
+    logger.info(f"Parâmetros recebidos: topic={topic}, num_questions={num_questions}, num_subtopics={num_subtopics}")
+    
     try:
         # Validate input
         if not isinstance(topic, str) or not topic.strip():
+            logger.error(f"Tópico inválido: {topic}")
             raise ValueError("Topic must be a non-empty string")
         if not isinstance(num_questions, int) or num_questions < 1:
+            logger.error(f"Número de questões inválido: {num_questions}")
             raise ValueError("num_questions must be a positive integer")
         if not isinstance(num_subtopics, int) or num_subtopics < 1:
+            logger.error(f"Número de sub-tópicos inválido: {num_subtopics}")
             raise ValueError("num_subtopics must be a positive integer")
             
         # Use environment API key if none provided
         if not api_key:
             api_key = os.getenv('OPENAI_API_KEY')
             if not api_key:
+                logger.error("Chave da API OpenAI não encontrada")
                 raise ValueError("OpenAI API key not found")
+            logger.info("Usando chave da API do ambiente")
         
-        # Initialize OpenAI client
-        client = OpenAI(api_key=api_key)
+        logger.info("Inicializando cliente OpenAI")
+        try:
+            client = OpenAI(api_key=api_key)
+            # Test the API key with a simple completion
+            test_response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": "Test"}],
+                max_tokens=5
+            )
+            logger.info("Teste de conexão com OpenAI bem sucedido")
+        except Exception as e:
+            logger.error(f"Erro ao inicializar cliente OpenAI: {str(e)}")
+            raise ValueError(f"Failed to initialize OpenAI client: {str(e)}")
+        
+        # Initialize DatabaseManager
+        try:
+            db_manager = DatabaseManager()
+            logger.info("DatabaseManager inicializado com sucesso")
+        except Exception as e:
+            logger.error(f"Erro ao inicializar DatabaseManager: {str(e)}")
+            raise ValueError(f"Failed to initialize DatabaseManager: {str(e)}")
         
         # Generate subtopics first
-        subtopics_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{
-                "role": "system",
-                "content": "You are a PMP certification expert. Generate specific subtopics for the given topic."
-            }, {
-                "role": "user",
-                "content": f"Generate {num_subtopics} specific subtopics for the PMP topic: {topic}. Return only the subtopics as a comma-separated list."
-            }]
-        )
-        
-        subtopics = subtopics_response.choices[0].message.content.split(',')
-        subtopics = [s.strip() for s in subtopics[:num_subtopics]]
+        logger.info("Gerando sub-tópicos...")
+        try:
+            subtopics_response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{
+                    "role": "system",
+                    "content": "You are a PMP certification expert. Generate specific subtopics for the given topic."
+                }, {
+                    "role": "user",
+                    "content": f"Generate {num_subtopics} specific subtopics for the PMP topic: {topic}. Return only the subtopics as a comma-separated list."
+                }],
+                temperature=0.7
+            )
+            
+            if not subtopics_response.choices or not subtopics_response.choices[0].message.content:
+                raise ValueError("No subtopics generated")
+                
+            subtopics = subtopics_response.choices[0].message.content.split(',')
+            subtopics = [s.strip() for s in subtopics[:num_subtopics]]
+            logger.info(f"Sub-tópicos gerados: {subtopics}")
+        except Exception as e:
+            logger.error(f"Erro ao gerar sub-tópicos: {str(e)}")
+            raise ValueError(f"Failed to generate subtopics: {str(e)}")
         
         # Calculate questions per subtopic
         questions_per_subtopic = num_questions // len(subtopics)
         extra_questions = num_questions % len(subtopics)
+        logger.info(f"Distribuição de questões: {questions_per_subtopic} por sub-tópico + {extra_questions} extra")
         
         questions = []
         for i, subtopic in enumerate(subtopics):
-            # Add extra question to early subtopics if needed
             current_questions = questions_per_subtopic + (1 if i < extra_questions else 0)
+            logger.info(f"Gerando {current_questions} questões para o sub-tópico: {subtopic}")
             
             if current_questions > 0:
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[{
-                        "role": "system",
-                        "content": "You are a PMP certification expert. Generate multiple-choice questions."
-                    }, {
-                        "role": "user",
-                        "content": f"Generate {current_questions} multiple-choice PMP questions about {subtopic} (related to {topic}). "
-                                 f"For each question, provide 4 options (A, B, C, D) and mark the correct answer. "
-                                 f"Make questions of varying difficulty. Format as JSON array with 'question', 'options', 'correct_answer', and 'subtopic' fields."
-                    }]
-                )
-                
                 try:
-                    # Parse the response and extract questions
+                    response = client.chat.completions.create(
+                        model="gpt-3.5-turbo",
+                        messages=[{
+                            "role": "system",
+                            "content": """You are a PMP certification expert. Generate multiple-choice questions in JSON format.
+                            Each question must be a JSON object with the following structure:
+                            {
+                                "question": "Question text",
+                                "options": ["Option A", "Option B", "Option C", "Option D"],
+                                "correct_answer": "A",
+                                "explanation": "Detailed explanation"
+                            }
+                            Return all questions as a JSON array."""
+                        }, {
+                            "role": "user",
+                            "content": f"""Generate {current_questions} multiple-choice PMP questions about {subtopic} (related to {topic}).
+                            Format each question as a JSON object with the following structure:
+                            {{
+                                "question": "Question text",
+                                "options": ["Option A", "Option B", "Option C", "Option D"],
+                                "correct_answer": "A",
+                                "explanation": "Detailed explanation"
+                            }}
+                            Return all questions as a JSON array."""
+                        }],
+                        temperature=0.7
+                    )
+                    
                     content = response.choices[0].message.content
-                    subtopic_questions = json.loads(content)
-                    if isinstance(subtopic_questions, list):
-                        questions.extend(subtopic_questions)
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse questions for subtopic {subtopic}")
+                    logger.info(f"Resposta recebida para sub-tópico {subtopic}")
+                    logger.debug(f"Conteúdo da resposta: {content}")
+                    
+                    try:
+                        # Try to clean the response if it's not valid JSON
+                        content = content.strip()
+                        if not content.startswith('['):
+                            content = '[' + content
+                        if not content.endswith(']'):
+                            content = content + ']'
+                            
+                        subtopic_questions = json.loads(content)
+                        if not isinstance(subtopic_questions, list):
+                            logger.error(f"Resposta não é uma lista: {type(subtopic_questions)}")
+                            continue
+                            
+                        logger.info(f"Adicionando {len(subtopic_questions)} questões do sub-tópico {subtopic}")
+                        
+                        # Validate and save each question
+                        for q in subtopic_questions:
+                            try:
+                                # Validate question format
+                                required_fields = ['question', 'options', 'correct_answer', 'explanation']
+                                if not all(field in q for field in required_fields):
+                                    logger.error(f"Questão faltando campos obrigatórios: {q}")
+                                    continue
+                                
+                                if not isinstance(q['options'], list) or len(q['options']) != 4:
+                                    logger.error(f"Formato inválido das opções: {q['options']}")
+                                    continue
+                                
+                                # Add metadata
+                                q['topic'] = topic
+                                q['subtopic'] = subtopic
+                                
+                                questions.append(q)
+                            except Exception as e:
+                                logger.error(f"Erro ao processar questão: {str(e)}")
+                                continue
+                                
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Erro ao decodificar JSON para sub-tópico {subtopic}: {str(e)}")
+                        logger.error(f"Conteúdo que causou o erro: {content}")
+                        continue
+                except Exception as e:
+                    logger.error(f"Erro ao gerar questões para sub-tópico {subtopic}: {str(e)}")
+                    logger.exception("Stacktrace completo:")
                     continue
         
+        # Only try to save questions if we have any
+        if questions:
+            logger.info(f"Salvando {len(questions)} questões no banco de dados")
+            for q in questions:
+                try:
+                    db_manager.add_question({
+                        'question': q['question'],
+                        'options': q['options'],
+                        'correct_answer': q['correct_answer'],
+                        'explanation': q.get('explanation', ''),
+                        'topic': q['topic'],
+                        'subtopic': q['subtopic'],
+                        'difficulty': q.get('difficulty', 1)
+                    })
+                except Exception as e:
+                    logger.error(f"Erro ao salvar questão no banco de dados: {str(e)}")
+                    continue
+        else:
+            logger.error("Nenhuma questão foi gerada com sucesso")
+            raise ValueError("No questions were generated successfully")
+        
+        logger.info(f"Geração concluída. Total de questões geradas: {len(questions)}")
         return questions
         
     except Exception as e:
-        logger.error(f"Error in generate_questions: {str(e)}")
+        logger.error(f"Erro na função generate_questions: {str(e)}")
+        logger.exception("Stacktrace completo:")
         raise 

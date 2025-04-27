@@ -10,6 +10,7 @@ def check_password():
             print(f"Username: {user.username}")
             print(f"Password hash: {user.password_hash}")
             print(f"Check password 'admin123': {check_password_hash(user.password_hash, 'admin123')}")
+            print(f"Check password 'admin': {check_password_hash(user.password_hash, 'admin')}")
         else:
             print("User not found")
 

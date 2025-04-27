@@ -14,6 +14,8 @@ logger.info(f"Current directory: {os.getcwd()}")
 logger.info(f"Python path: {sys.path}")
 logger.info(f"Database directory contents: {os.listdir(os.path.dirname(__file__))}")
 
+print("Caminho absoluto do banco:", os.path.abspath("instance/questoespmp.db"))
+
 try:
     from app.database.db_manager import DatabaseManager
     logger.info("Importação do DatabaseManager bem-sucedida")

@@ -1,4 +1,6 @@
 import os
+print("Diretório de trabalho atual:", os.getcwd())
+print("Caminho absoluto do banco:", os.path.abspath('instance/questoespmp.db'))
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
