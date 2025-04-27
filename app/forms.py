@@ -12,4 +12,8 @@ class ChangePasswordForm(FlaskForm):
     current_password = PasswordField('Senha Atual', validators=[DataRequired()])
     new_password = PasswordField('Nova Senha', validators=[DataRequired(), Length(min=6)])
     confirm_password = PasswordField('Confirmar Nova Senha', validators=[DataRequired(), Length(min=6)])
-    submit = SubmitField('Alterar Senha') 
+    submit = SubmitField('Alterar Senha')
+
+class ChangeApiKeyForm(FlaskForm):
+    api_key = StringField('Nova API Key', validators=[DataRequired()])
+    submit = SubmitField('Alterar API Key') 
