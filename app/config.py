@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import secrets
+import platform
 
 # Carregar variáveis de ambiente do arquivo .env
 env_path = Path('.') / '.env'
@@ -16,7 +17,11 @@ class Config:
     DEBUG = os.getenv('FLASK_DEBUG', '0') == '1'
     
     # Configurações do banco de dados
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///D:/questoespmp/instance/questoespmp.db'
+    if platform.system() == 'Windows':
+        SQLALCHEMY_DATABASE_URI = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///D:/questoespmp/instance/questoespmp.db')
+    else:
+        SQLALCHEMY_DATABASE_URI = os.getenv('SQLALCHEMY_DATABASE_URI', 'sqlite:///instance/questoespmp.db')
+    
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Configurações da API OpenAI
