@@ -13,7 +13,7 @@
           <h2 class="mdc-typography--headline5">Configurações</h2>
         </div>
         <div class="mdc-card__content">
-          <form method="POST" action="{{ url_for('main.settings') }}" class="mdc-form-field">
+          <form method="POST" action="{{ url_for('main.change_api_key') }}" class="mdc-form-field">
             <div class="mdc-text-field mdc-text-field--outlined" data-mdc-auto-init="MDCTextField">
               <input type="text" class="mdc-text-field__input" name="openai_api_key" value="{{ openai_api_key }}" required>
               <div class="mdc-notched-outline">
