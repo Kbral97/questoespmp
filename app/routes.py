@@ -162,8 +162,10 @@ def generate():
             if current_user.is_authenticated:
                 stats = Statistics.query.filter_by(user_id=current_user.id).first()
                 if not stats:
-                    stats = Statistics(user_id=current_user.id)
+                    stats = Statistics(user_id=current_user.id, total_questions=0, correct_answers=0, incorrect_answers=0)
                     db.session.add(stats)
+                if stats.total_questions is None:
+                    stats.total_questions = 0
                 stats.total_questions += num_questions
                 stats.last_updated = datetime.utcnow()
                 db.session.commit()
