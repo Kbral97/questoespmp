@@ -178,7 +178,13 @@ def generate():
 
 @main.route('/settings', methods=['GET', 'POST'])
 @login_required
-def settings():
+def change_api_key():
+    form = ChangeApiKeyForm()
+    logging.warning(f"Form instantiated: {form is not None}")
+    logging.warning(f"Request method: {request.method}")
+    if request.method == 'POST':
+        logging.warning(f"Form data: {request.form}")
+        logging.warning(f"CSRF token in form: {request.form.get('csrf_token')}")
     env_path = Path('.env')
     openai_api_key = os.getenv('OPENAI_API_KEY', '')
     other_api_key = os.getenv('OTHER_API_KEY', '')
@@ -196,9 +202,12 @@ def settings():
         flash('Configurações salvas com sucesso!', 'success')
         return redirect(url_for('main.settings'))
 
-    return render_template('settings.html', 
-                         openai_api_key=openai_api_key,
-                         other_api_key=other_api_key)
+    return render_template(
+        'settings.html',
+        form=form,
+        openai_api_key=openai_api_key,
+        other_api_key=other_api_key
+    )
 
 @main.route('/docs')
 @login_required
