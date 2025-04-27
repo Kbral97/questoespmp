@@ -46,10 +46,14 @@ def load_user(user_id):
         logger.error(f"Erro ao carregar usuário: {str(e)}")
         return None
 
-def create_app():
+def create_app(config_class=Config):
     """Cria e configura a aplicação Flask"""
     app = Flask(__name__)
-    app.config.from_object(Config)
+    app.config.from_object(config_class)
+    
+    # Configurar pasta de upload
+    app.config['UPLOAD_FOLDER'] = os.path.join(app.instance_path, 'uploads')
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     
     # Configuração do logging
     logging.basicConfig(level=logging.INFO)
@@ -81,4 +85,4 @@ def create_app():
             logger.error(f"Erro ao criar tabelas: {str(e)}")
             raise
     
-    return app 
+    return app
