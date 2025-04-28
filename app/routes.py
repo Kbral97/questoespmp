@@ -18,8 +18,10 @@ import tempfile
 from werkzeug.utils import secure_filename
 
 # Importar usando caminho relativo
-from .openai_client import generate_questions, generate_questions_with_specialized_models
+from .openai_client import generate_questions, generate_questions_with_specialized_models, show_ia_response_with_topics
 from .database.db_manager import DatabaseManager
+from app.api.openai_client import get_openai_client
+from app.openai_client import build_chunk_prompt
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -302,77 +304,160 @@ def api_statistics_web():
 def process_documents():
     try:
         data = request.get_json()
+        logger.info(f'[PROCESS-DOCS] Dados recebidos: {data}')
         if not data or 'documents' not in data:
+            logger.error('[PROCESS-DOCS] Dados inválidos recebidos no processamento')
             return jsonify({'error': 'Dados inválidos'}), 400
-            
         documents = data['documents']
-        processed_documents = []
-        
+        results = []
+        import re
         for doc_path in documents:
             try:
-                # Caminho completo do arquivo
-                full_path = os.path.join(current_app.config['UPLOAD_FOLDER'], 'resumos', doc_path)
-                
+                uploads_dir = os.path.join('data', 'uploads', 'resumos')
+                full_path = os.path.join(uploads_dir, doc_path)
+                logger.info(f'[PROCESS-DOCS] Processando documento: {doc_path} (caminho: {full_path})')
                 if not os.path.exists(full_path):
+                    logger.warning(f'[PROCESS-DOCS] Arquivo não encontrado: {full_path}')
+                    results.append({'name': doc_path, 'status': 'Erro', 'message': 'Arquivo não encontrado'})
                     continue
-                    
                 # Extrair texto do PDF
                 text = extract_text_from_pdf(full_path)
-                
-                # Dividir em chunks
-                chunks = split_text_into_chunks(text)
-                
-                # Processar cada chunk com a IA
-                processed_chunks = process_chunks_with_ai(chunks)
-                
-                # Obter o título do documento (nome do arquivo sem extensão)
-                document_title = os.path.splitext(os.path.basename(doc_path))[0]
-                
-                # Deletar chunks antigos do mesmo documento
-                TextChunk.query.filter_by(
-                    document_title=document_title,
-                    user_id=current_user.id
-                ).delete()
-                
-                # Salvar novos chunks no banco de dados
-                for chunk, processed in zip(chunks, processed_chunks):
-                    text_chunk = TextChunk(
+                logger.info(f'[PROCESS-DOCS] Texto extraído do PDF ({doc_path}): {len(text)} caracteres')
+                # Separar texto original em blocos por tópico
+                # Exemplo: linhas que começam com "1-", "2-", "1.1-", etc.
+                original_blocks = []
+                current_block = ''
+                current_topic = None
+                for line in text.splitlines():
+                    match = re.match(r'^(\d+)(?:\.\d+)*-\s*(.*)', line.strip())
+                    if match:
+                        main_topic = match.group(1)
+                        if current_topic is not None and main_topic != current_topic:
+                            original_blocks.append({'topic': current_topic, 'text': current_block.strip()})
+                            current_block = ''
+                        current_topic = main_topic
+                        current_block += ('' if current_block == '' else '\n') + match.group(2)
+                    else:
+                        current_block += '\n' + line
+                if current_block and current_topic is not None:
+                    original_blocks.append({'topic': current_topic, 'text': current_block.strip()})
+                logger.info(f'[PROCESS-DOCS] Blocos de texto original extraídos: {len(original_blocks)}')
+                # Filtrar apenas tópicos com texto não vazio
+                original_blocks = [b for b in original_blocks if b['text'].strip()]
+                # Remover quebras de linha do texto original para o prompt
+                text_no_breaks = text.replace('\n', ' ')
+                # Gerar prompt para chunking, agora incluindo o título do documento
+                document_title = os.path.splitext(doc_path)[0]
+                prompt = build_chunk_prompt(text_no_breaks, document_title=document_title)
+                logger.debug(f'[PROCESS-DOCS] Prompt gerado para IA: {prompt[:200]}...')
+                # Chamar a IA para processar o texto
+                client = get_openai_client()
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "Você é um assistente que processa textos técnicos."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=2000
+                )
+                ia_result = response.choices[0].message.content
+                logger.info(f'[PROCESS-DOCS] Resposta da IA recebida para {doc_path} (tamanho: {len(ia_result)} caracteres)')
+                # Apagar chunks antigos do usuário para este documento
+                from app import db
+                from app.models import TextChunk
+                deleted = TextChunk.query.filter_by(document_title=document_title, user_id=current_user.id).delete()
+                logger.info(f'[PROCESS-DOCS] Chunks antigos removidos: {deleted}')
+                # Separar por tópicos usando regex (IA)
+                topic_blocks = re.split(r'(<T[óo]pico \d+:)', ia_result)
+                ia_chunks = []
+                i = 1
+                while i < len(topic_blocks):
+                    header = topic_blocks[i]
+                    content = topic_blocks[i+1] if i+1 < len(topic_blocks) else ''
+                    ia_chunks.append({'header': header, 'content': content})
+                    i += 2
+                # Salvar cada chunk separado, associando ao texto original
+                chunk_results = []
+                ia_topics = set()
+                for idx, ia_chunk in enumerate(ia_chunks):
+                    match = re.match(r'<T[óo]pico (\d+):', ia_chunk['header'])
+                    topic_num = match.group(1) if match else None
+                    ia_topics.add(topic_num)
+                    original_text = ''
+                    for block in original_blocks:
+                        if block['topic'] == topic_num:
+                            original_text = block['text']
+                            break
+                    chunk_text = (ia_chunk['header'] + ia_chunk['content']).strip()
+                    chunk = TextChunk(
                         document_title=document_title,
-                        chunk_text=chunk,
-                        processed_text=processed['processed'],
+                        chunk_text=chunk_text,
+                        processed_text=chunk_text,
                         user_id=current_user.id
                     )
-                    db.session.add(text_chunk)
-                
+                    db.session.add(chunk)
+                    logger.info(f'[PROCESS-DOCS] Chunk salvo (tópico {topic_num}) para documento {doc_path} e usuário {current_user.id}')
+                    chunk_results.append({
+                        'topic': topic_num,
+                        'original_text': original_text,
+                        'ia_text': chunk_text
+                    })
+                # Verificar se todos os tópicos do texto original foram analisados
+                missing_topics = [block['topic'] for block in original_blocks if block['topic'] not in ia_topics]
+                if missing_topics:
+                    logger.warning(f'[PROCESS-DOCS] Tópicos não analisados pela IA: {missing_topics}. Reenviando para IA.')
+                    for topic in missing_topics:
+                        block = next((b for b in original_blocks if b['topic'] == topic), None)
+                        if block:
+                            # Remover quebras de linha do texto do tópico
+                            block_text_no_breaks = block['text'].replace('\n', ' ')
+                            prompt_topic = build_chunk_prompt(block_text_no_breaks, document_title=document_title)
+                            response_topic = client.chat.completions.create(
+                                model="gpt-3.5-turbo",
+                                messages=[
+                                    {"role": "system", "content": "Você é um assistente que processa textos técnicos."},
+                                    {"role": "user", "content": prompt_topic}
+                                ],
+                                temperature=0.7,
+                                max_tokens=1000
+                            )
+                            ia_topic_result = response_topic.choices[0].message.content
+                            logger.info(f'[PROCESS-DOCS] Resposta da IA para tópico {topic} recebida (tamanho: {len(ia_topic_result)} caracteres)')
+                            chunk = TextChunk(
+                                document_title=document_title,
+                                chunk_text=ia_topic_result,
+                                processed_text=ia_topic_result,
+                                user_id=current_user.id
+                            )
+                            db.session.add(chunk)
+                            chunk_results.append({
+                                'topic': topic,
+                                'original_text': block['text'].replace('\n', ' '),
+                                'ia_text': ia_topic_result
+                            })
                 db.session.commit()
-                
-                processed_documents.append({
-                    'path': doc_path,
-                    'status': 'Processado',
-                    'processed_date': datetime.now().isoformat()
-                })
-                
+                results.append({'name': doc_path, 'status': 'Processado', 'message': f'Processamento concluído com sucesso. {len(chunk_results)} tópicos salvos.', 'chunks': chunk_results})
             except Exception as e:
-                current_app.logger.error(f'Erro ao processar documento {doc_path}: {str(e)}')
-                db.session.rollback()
+                current_app.logger.error(f'[PROCESS-DOCS] Erro ao processar documento {doc_path}: {str(e)}')
+                results.append({'name': doc_path, 'status': 'Erro', 'message': str(e)})
                 continue
-                
-        return jsonify({
-            'success': True,
-            'processed_documents': processed_documents
-        })
-        
+        logger.info(f'[PROCESS-DOCS] Resultado final do processamento: {results}')
+        return jsonify({'success': True, 'results': results})
     except Exception as e:
-        current_app.logger.error(f'Erro no processamento de documentos: {str(e)}')
-        db.session.rollback()
+        current_app.logger.error(f'[PROCESS-DOCS] Erro no processamento de documentos: {str(e)}')
         return jsonify({'error': str(e)}), 500
 
 def extract_text_from_pdf(pdf_path):
+    logger.info(f'[EXTRACT-PDF] Extraindo texto do arquivo: {pdf_path}')
     text = ""
     with open(pdf_path, 'rb') as file:
         reader = PyPDF2.PdfReader(file)
         for page in reader.pages:
-            text += page.extract_text()
+            page_text = page.extract_text()
+            logger.debug(f'[EXTRACT-PDF] Página extraída ({len(page_text) if page_text else 0} caracteres)')
+            text += page_text if page_text else ''
+    logger.info(f'[EXTRACT-PDF] Extração concluída ({len(text)} caracteres)')
     return text
 
 def split_text_into_chunks(text, chunk_size=1000):
@@ -443,4 +528,219 @@ def get_document_chunks(document_title):
         
     except Exception as e:
         current_app.logger.error(f'Erro ao buscar chunks do documento {document_title}: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/list-documents', methods=['GET'])
+def list_documents():
+    uploads_dir = os.path.join('data', 'uploads', 'resumos')
+    logger.info(f'[LIST] Listando arquivos em: {uploads_dir}')
+    try:
+        files = os.listdir(uploads_dir)
+        documents = []
+        for f in files:
+            if os.path.isfile(os.path.join(uploads_dir, f)):
+                title = os.path.splitext(f)[0]
+                processed = False
+                if current_user.is_authenticated:
+                    processed = TextChunk.query.filter_by(document_title=title, user_id=current_user.id).first() is not None
+                documents.append({'name': f, 'processed': processed})
+        logger.info(f'[LIST] Documentos encontrados: {[d["name"] for d in documents]}')
+        return jsonify({'documents': documents})
+    except Exception as e:
+        logger.error(f'[LIST] Erro ao listar documentos: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/upload-document', methods=['POST'])
+@login_required
+def upload_document():
+    uploads_dir = os.path.join('data', 'uploads', 'resumos')
+    if not os.path.exists(uploads_dir):
+        os.makedirs(uploads_dir)
+        logger.info(f'[UPLOAD] Diretório criado: {uploads_dir}')
+    if 'document' not in request.files:
+        current_app.logger.error('[UPLOAD] Nenhum arquivo enviado no upload.')
+        return jsonify({'error': 'Nenhum arquivo enviado.'}), 400
+    file = request.files['document']
+    if file.filename == '':
+        current_app.logger.error('[UPLOAD] Nome de arquivo vazio no upload.')
+        return jsonify({'error': 'Nome de arquivo vazio.'}), 400
+    file_path = os.path.join(uploads_dir, file.filename)
+    try:
+        file.save(file_path)
+        current_app.logger.info(f'[UPLOAD] Arquivo salvo em: {file_path}')
+    except Exception as e:
+        current_app.logger.error(f'[UPLOAD] Erro ao salvar arquivo: {str(e)}')
+        return jsonify({'error': f'Erro ao salvar arquivo: {str(e)}'}), 500
+    return jsonify({'success': True, 'filename': file.filename})
+
+@main.route('/api/delete-document', methods=['DELETE'])
+def delete_document():
+    data = request.get_json()
+    filename = data.get('filename')
+    logger.info(f'[DELETE] Requisição para remover arquivo: {filename}')
+    if not filename:
+        logger.error('[DELETE] Nome do arquivo não informado.')
+        return jsonify({'error': 'Nome do arquivo não informado.'}), 400
+    uploads_dir = os.path.join('data', 'uploads', 'resumos')
+    file_path = os.path.join(uploads_dir, filename)
+    if not os.path.exists(file_path):
+        logger.warning(f'[DELETE] Arquivo não encontrado: {file_path}')
+        return jsonify({'error': 'Arquivo não encontrado.'}), 404
+    try:
+        os.remove(file_path)
+        logger.info(f'[DELETE] Arquivo removido: {file_path}')
+        # Remover chunks do banco de dados
+        document_title = os.path.splitext(filename)[0]
+        if current_user.is_authenticated:
+            deleted = TextChunk.query.filter_by(document_title=document_title, user_id=current_user.id).delete()
+            from app import db
+            db.session.commit()
+            current_app.logger.info(f'[DELETE] Removidos {deleted} chunks do documento {document_title} para o usuário {current_user.id}')
+        return jsonify({'success': True})
+    except Exception as e:
+        current_app.logger.error(f'[DELETE] Erro ao remover documento ou chunks: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/db-viewer')
+@login_required
+def db_viewer():
+    from app.models import TextChunk, Question, User
+    chunks = TextChunk.query.limit(50).all()
+    questions = Question.query.limit(20).all()
+    users = User.query.limit(10).all()
+    return render_template('db_viewer.html', chunks=chunks, questions=questions, users=users)
+
+@main.route('/api/extract-topics', methods=['POST'])
+@login_required
+def extract_topics():
+    try:
+        data = request.get_json()
+        if not data or 'document' not in data:
+            return jsonify({'error': 'Documento não informado'}), 400
+        doc_path = data['document']
+        uploads_dir = os.path.join('data', 'uploads', 'resumos')
+        full_path = os.path.join(uploads_dir, doc_path)
+        if not os.path.exists(full_path):
+            return jsonify({'error': 'Arquivo não encontrado'}), 404
+        text = extract_text_from_pdf(full_path)
+        import re
+        original_blocks = []
+        current_block = ''
+        current_topic = None
+        for line in text.splitlines():
+            match = re.match(r'^(\d+)(?:\.\d+)*-\s*(.*)', line.strip())
+            if match:
+                main_topic = match.group(1)
+                if current_topic is not None and main_topic != current_topic:
+                    original_blocks.append({'topic': current_topic, 'text': current_block.strip()})
+                    current_block = ''
+                current_topic = main_topic
+                current_block += ('' if current_block == '' else '\n') + match.group(2)
+            else:
+                current_block += '\n' + line
+        if current_block and current_topic is not None:
+            original_blocks.append({'topic': current_topic, 'text': current_block.strip()})
+        # Filtrar apenas tópicos com texto não vazio
+        original_blocks = [b for b in original_blocks if b['text'].strip()]
+        # Remover quebras de linha para exibição em parágrafo
+        for b in original_blocks:
+            b['text'] = b['text'].replace('\n', ' ')
+        return jsonify({'success': True, 'topics': original_blocks})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/process-topic', methods=['POST'])
+@login_required
+def process_topic():
+    try:
+        data = request.get_json()
+        document_title = data.get('document_title')
+        topic = data.get('topic')
+        text = data.get('text')
+        if not document_title or not topic or not text:
+            return jsonify({'error': 'Parâmetros obrigatórios ausentes'}), 400
+        # Importações locais corretas
+        from app.openai_client import build_chunk_prompt
+        from app.api.openai_client import get_openai_client
+        prompt = build_chunk_prompt(text, document_title=document_title)
+        client = get_openai_client()
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "Você é um assistente que processa textos técnicos."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1000
+        )
+        ia_text = response.choices[0].message.content
+        return jsonify({'success': True, 'ia_text': ia_text})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/save-chunks', methods=['POST'])
+@login_required
+def save_chunks():
+    try:
+        data = request.get_json()
+        document_title = data.get('document')
+        chunks = data.get('chunks')
+        chunk_text = data.get('chunk_text')
+        if not document_title:
+            logger.error('[SAVE-CHUNKS] Parâmetro documento ausente')
+            return jsonify({'error': 'Parâmetro documento ausente'}), 400
+        saved = 0
+        # Novo formato: lista de chunks
+        if chunks and isinstance(chunks, list):
+            for idx, chunk in enumerate(chunks):
+                text = chunk.get('chunk_text')
+                if not text:
+                    logger.warning(f'[SAVE-CHUNKS] Chunk vazio ignorado (idx={idx})')
+                    continue
+                new_chunk = TextChunk(
+                    document_title=document_title,
+                    chunk_text=text,
+                    processed_text=text,
+                    user_id=current_user.id
+                )
+                db.session.add(new_chunk)
+                saved += 1
+                logger.info(f'[SAVE-CHUNKS] Chunk salvo (idx={idx}) para documento {document_title} e usuário {current_user.id}')
+            db.session.commit()
+            logger.info(f'[SAVE-CHUNKS] Total de chunks salvos: {saved}')
+            return jsonify({'success': True, 'saved': saved})
+        # Compatibilidade: campo antigo
+        elif chunk_text:
+            new_chunk = TextChunk(
+                document_title=document_title,
+                chunk_text=chunk_text,
+                processed_text=chunk_text,
+                user_id=current_user.id
+            )
+            db.session.add(new_chunk)
+            db.session.commit()
+            logger.info(f'[SAVE-CHUNKS] Chunk único salvo para documento {document_title} e usuário {current_user.id}')
+            return jsonify({'success': True, 'saved': 1})
+        else:
+            logger.error('[SAVE-CHUNKS] Nenhum chunk fornecido')
+            return jsonify({'error': 'Nenhum chunk fornecido'}), 400
+    except Exception as e:
+        logger.error(f'[SAVE-CHUNKS] Erro ao salvar chunk: {str(e)}')
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/delete-chunks', methods=['POST'])
+@login_required
+def delete_chunks():
+    try:
+        data = request.get_json()
+        document_title = data.get('document')
+        if not document_title:
+            logger.error('[DELETE-CHUNKS] Parâmetro documento ausente')
+            return jsonify({'error': 'Parâmetro documento ausente'}), 400
+        deleted = TextChunk.query.filter_by(document_title=document_title, user_id=current_user.id).delete()
+        db.session.commit()
+        logger.info(f'[DELETE-CHUNKS] Removidos {deleted} chunks do documento {document_title} para o usuário {current_user.id}')
+        return jsonify({'success': True, 'deleted': deleted})
+    except Exception as e:
+        logger.error(f'[DELETE-CHUNKS] Erro ao apagar chunks: {str(e)}')
         return jsonify({'error': str(e)}), 500 

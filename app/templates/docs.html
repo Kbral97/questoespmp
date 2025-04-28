@@ -1,59 +1,409 @@
 {% extends "base.html" %}
 
-{% block title %}Documentação - Questões PMP{% endblock %}
+{% block title %}Tratamento de Documentos - Questões PMP{% endblock %}
 
-{% block header_title %}Documentação{% endblock %}
+{% block header_title %}Tratamento de Documentos{% endblock %}
+
+{% block head %}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+{% endblock %}
 
 {% block content %}
+<a href="{{ url_for('main.index') }}" class="mdc-button mdc-button--outlined" style="margin-bottom: 16px;">
+    <span class="mdc-button__ripple"></span>
+    <span class="mdc-button__label">Voltar ao Menu</span>
+</a>
 <div class="mdc-layout-grid">
   <div class="mdc-layout-grid__inner">
     <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
       <div class="mdc-card">
         <div class="mdc-card__primary">
-          <h2 class="mdc-typography--headline5">Áreas de Conhecimento</h2>
+          <h2 class="mdc-typography--headline5">Gerenciamento de Documentos</h2>
         </div>
         <div class="mdc-card__content">
-          <div class="mdc-list">
-            <div class="mdc-list-item">
-              <span class="mdc-list-item__text">
-                <span class="mdc-list-item__primary-text">Gerenciamento de Integração</span>
-                <span class="mdc-list-item__secondary-text">Processos e atividades que identificam, definem, combinam, unificam e coordenam os vários processos e atividades de gerenciamento de projetos.</span>
-              </span>
-            </div>
-            <div class="mdc-list-item">
-              <span class="mdc-list-item__text">
-                <span class="mdc-list-item__primary-text">Gerenciamento de Escopo</span>
-                <span class="mdc-list-item__secondary-text">Processos necessários para garantir que o projeto inclua todo o trabalho necessário, e apenas o trabalho necessário, para completar o projeto com sucesso.</span>
-              </span>
-            </div>
+          <form id="uploadForm" enctype="multipart/form-data" style="margin-bottom: 16px;">
+            <input type="file" id="documentInput" name="document" style="margin-bottom: 8px;" required>
+            <button type="submit" class="mdc-button mdc-button--raised">
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Adicionar Documento</span>
+            </button>
+          </form>
+          <h3 class="mdc-typography--subtitle1">Documentos Disponíveis</h3>
+          <ul id="documentList" class="mdc-list">
+            <!-- Lista de documentos será renderizada aqui via JS -->
+          </ul>
+          <div style="margin-top: 16px;">
+            <button id="processSelectedBtn" class="mdc-button mdc-button--raised" disabled>
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Processar Selecionados</span>
+            </button>
+            <button id="removeSelectedBtn" class="mdc-button mdc-button--outlined" disabled>
+              <span class="mdc-button__ripple"></span>
+              <span class="mdc-button__label">Remover Selecionados</span>
+            </button>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="mdc-layout-grid__cell mdc-layout-grid__cell--span-12">
-      <div class="mdc-card">
-        <div class="mdc-card__primary">
-          <h2 class="mdc-typography--headline5">Grupos de Processos</h2>
-        </div>
-        <div class="mdc-card__content">
-          <div class="mdc-list">
-            <div class="mdc-list-item">
-              <span class="mdc-list-item__text">
-                <span class="mdc-list-item__primary-text">Iniciação</span>
-                <span class="mdc-list-item__secondary-text">Processos realizados para definir um novo projeto ou uma nova fase de um projeto existente.</span>
-              </span>
-            </div>
-            <div class="mdc-list-item">
-              <span class="mdc-list-item__text">
-                <span class="mdc-list-item__primary-text">Planejamento</span>
-                <span class="mdc-list-item__secondary-text">Processos necessários para estabelecer o escopo do projeto, refinar os objetivos e definir o curso de ação necessário para atingir os objetivos.</span>
-              </span>
-            </div>
-          </div>
+          <div id="processResults" style="margin-top:32px;"></div>
         </div>
       </div>
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Estrutura inicial de dados (mock)
+let documentos = [];
+let extractedTopics = [];
+let currentTopicIndex = 0;
+
+function renderDocumentList() {
+  const list = document.getElementById('documentList');
+  list.innerHTML = '';
+  if (documentos.length === 0) {
+    list.innerHTML = '<li class="mdc-list-item">Nenhum documento disponível.</li>';
+    document.getElementById('processSelectedBtn').disabled = true;
+    document.getElementById('removeSelectedBtn').disabled = true;
+    return;
+  }
+  documentos.forEach((doc, idx) => {
+    const li = document.createElement('li');
+    li.className = 'mdc-list-item';
+    li.innerHTML = `
+      <span class="mdc-list-item__graphic">
+        <input type="checkbox" class="doc-checkbox" data-idx="${idx}">
+      </span>
+      <span class="mdc-list-item__text">
+        ${doc.name}
+        <span style="font-size:0.9em;color:${doc.processed ? '#388e3c' : '#b71c1c'};margin-left:8px;">${doc.processed ? 'Processado' : 'Não processado'}</span>
+      </span>
+    `;
+    list.appendChild(li);
+  });
+  updateActionButtons();
+}
+
+function updateActionButtons() {
+  const anyChecked = Array.from(document.querySelectorAll('.doc-checkbox')).some(cb => cb.checked);
+  document.getElementById('processSelectedBtn').disabled = !anyChecked;
+  document.getElementById('removeSelectedBtn').disabled = !anyChecked;
+}
+
+document.addEventListener('change', function(e) {
+  if (e.target.classList.contains('doc-checkbox')) {
+    updateActionButtons();
+  }
+});
+
+// Função para buscar documentos do backend
+async function fetchDocumentList() {
+  try {
+    const resp = await fetch('/api/list-documents');
+    if (!resp.ok) throw new Error('Erro ao buscar documentos');
+    const data = await resp.json();
+    documentos = data.documents;
+    renderDocumentList();
+  } catch (err) {
+    console.error('Erro ao buscar lista de documentos:', err);
+    documentos = [];
+    renderDocumentList();
+  }
+}
+
+// Função utilitária para obter o CSRF token
+function getCsrfToken() {
+  const meta = document.querySelector('meta[name="csrf-token"]');
+  return meta ? meta.getAttribute('content') : '';
+}
+
+document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const input = document.getElementById('documentInput');
+  if (input.files.length === 0) return;
+  const formData = new FormData();
+  formData.append('document', input.files[0]);
+  const csrfToken = getCsrfToken();
+  try {
+    const resp = await fetch('/api/upload-document', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrfToken },
+      body: formData
+    });
+    if (!resp.ok) {
+      const errData = await resp.json();
+      alert('Erro ao enviar documento: ' + (errData.error || resp.status));
+      console.error('Erro ao enviar documento:', errData);
+      return;
+    }
+    await fetchDocumentList();
+    input.value = '';
+  } catch (err) {
+    alert('Erro ao enviar documento.');
+    console.error('Erro ao enviar documento:', err);
+  }
+});
+
+// Remover selecionados
+
+document.getElementById('removeSelectedBtn').addEventListener('click', async function() {
+  const checkboxes = document.querySelectorAll('.doc-checkbox');
+  const toRemove = [];
+  checkboxes.forEach((cb, idx) => { if (cb.checked) toRemove.push(documentos[idx].name); });
+  if (toRemove.length === 0) return;
+  if (!confirm('Tem certeza que deseja remover os documentos selecionados?')) return;
+  const csrfToken = getCsrfToken();
+  for (const filename of toRemove) {
+    try {
+      const resp = await fetch('/api/delete-document', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': csrfToken
+        },
+        body: JSON.stringify({ filename })
+      });
+      if (!resp.ok) {
+        const errData = await resp.json();
+        alert('Erro ao remover documento: ' + (errData.error || resp.status));
+        console.error('Erro ao remover documento:', errData);
+      }
+    } catch (err) {
+      alert('Erro ao remover documento.');
+      console.error('Erro ao remover documento:', err);
+    }
+  }
+  await fetchDocumentList();
+});
+
+function renderExtractedTopics() {
+  const processResultsDiv = document.getElementById('processResults');
+  // Adicionar container da barra de progresso
+  let progressBarHtml = '';
+  if (extractedTopics.length) {
+    progressBarHtml = `
+      <div id="progressBarContainer" style="margin-bottom:1em;">
+        <div id="progressBarText" style="margin-bottom:4px; font-size:0.95em; color:#1565c0;"></div>
+        <div style="background:#e0e0e0; border-radius:8px; height:18px; width:100%;">
+          <div id="progressBar" style="background:#1976d2; height:100%; width:0%; border-radius:8px; transition:width 0.3s;"></div>
+        </div>
+      </div>
+    `;
+  }
+  if (!extractedTopics.length) {
+    processResultsDiv.innerHTML = '<div style="color:#b71c1c;"><b>Nenhum tópico encontrado no documento.</b></div>';
+    return;
+  }
+  let html = progressBarHtml + '<h4>Tópicos extraídos do documento:</h4>';
+  extractedTopics.forEach((topic, idx) => {
+    html += `<div style='margin:1.5em 0; padding:1em; border:1px solid #ccc; border-radius:8px; background:#fafafa; position:relative;'>`;
+    html += `<div style='font-weight:bold; color:#1565c0;'>Tópico ${topic.topic}</div>`;
+    html += `<div style='margin-top:0.5em;'><b>Texto original:</b><br><div style='white-space:normal; background:#f5f5f5; padding:0.5em; border-radius:4px;'>${topic.text}</div></div>`;
+    if (topic.ia_text) {
+      html += `<div style='margin-top:0.5em;'><b>Resposta da IA:</b><br><div style='white-space:pre-wrap; background:#e3f2fd; padding:0.5em; border-radius:4px;'>${topic.ia_text}</div></div>`;
+    }
+    html += `<button class='remove-topic-btn' data-idx='${idx}' style='position:absolute; top:8px; right:8px; background:#b71c1c; color:#fff; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;'>Remover</button>`;
+    html += `</div>`;
+  });
+  html += `<div style='margin-top:2em; text-align:center;'><button id='nextTopicBtn' class='mdc-button mdc-button--raised' style='font-weight:bold;'>Processar Todos</button></div>`;
+  processResultsDiv.innerHTML = html;
+
+  // Adicionar listeners para remover tópicos
+  document.querySelectorAll('.remove-topic-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const idx = parseInt(this.getAttribute('data-idx'));
+      extractedTopics.splice(idx, 1);
+      renderExtractedTopics();
+    });
+  });
+  // Listener para botão Processar Todos
+  document.getElementById('nextTopicBtn').addEventListener('click', async function() {
+    if (extractedTopics.length === 0) return;
+    this.disabled = true;
+    this.textContent = 'Processando...';
+    let processedCount = 0;
+    const total = extractedTopics.length;
+    function updateProgressBar() {
+      const percent = Math.round((processedCount / total) * 100);
+      const bar = document.getElementById('progressBar');
+      const text = document.getElementById('progressBarText');
+      if (bar) bar.style.width = percent + '%';
+      if (text) text.textContent = `Processados: ${processedCount} de ${total} (${percent}%)`;
+      // Log para depuração
+      console.log(`[Progresso] ${processedCount}/${total} tópicos processados (${percent}%)`);
+    }
+    updateProgressBar();
+    for (let i = 0; i < extractedTopics.length; i++) {
+      const topic = extractedTopics[i];
+      if (topic.ia_text) {
+        processedCount++;
+        updateProgressBar();
+        continue; // Pular se já processado
+      }
+      try {
+        const csrfToken = getCsrfToken();
+        const resp = await fetch('/api/process-topic', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify({
+            document_title: topic.doc_name || documentos.find(d => d.name === documentInput.files[0]?.name)?.name || '',
+            topic: topic.topic,
+            text: topic.text
+          })
+        });
+        if (!resp.ok) {
+          const errData = await resp.json();
+          alert('Erro ao processar tópico: ' + (errData.error || resp.status));
+          continue;
+        }
+        const data = await resp.json();
+        topic.ia_text = data.ia_text;
+        processedCount++;
+        renderExtractedTopics(); // Atualiza a tela e barra
+        // Após re-render, reatualizar barra (pois re-render zera listeners e barra)
+        setTimeout(updateProgressBar, 100);
+      } catch (err) {
+        alert('Erro ao processar tópico.');
+      }
+    }
+    this.disabled = false;
+    this.textContent = 'Processar Todos';
+    updateProgressBar();
+
+    // Após processar todos, deletar chunks antigos e salvar novos no banco
+    const chunksArray = extractedTopics.map(t => {
+      let chunk = `Tópico: ${t.topic}\nTexto original: ${t.text}`;
+      if (t.ia_text) chunk += `\nResposta da IA: ${t.ia_text}`;
+      return { topic: t.topic, chunk_text: chunk };
+    });
+    const docName = extractedTopics[0]?.doc_name || '';
+    if (docName && chunksArray.length > 0) {
+      const csrfToken = getCsrfToken();
+      console.log('[Chunks] Solicitando exclusão dos chunks antigos:', {document: docName});
+      try {
+        fetch('/api/delete-chunks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': csrfToken
+          },
+          body: JSON.stringify({ document: docName })
+        }).then(async resp => {
+          if (!resp.ok) {
+            const errData = await resp.json();
+            alert('Erro ao apagar chunks antigos: ' + (errData.error || resp.status));
+            console.error('[Chunks] Erro ao apagar antigos:', errData);
+            return;
+          }
+          console.log('[Chunks] Chunks antigos apagados com sucesso!');
+          // Agora salvar os novos chunks (um por tópico)
+          fetch('/api/save-chunks', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({
+              document: docName,
+              chunks: chunksArray
+            })
+          }).then(async resp2 => {
+            if (!resp2.ok) {
+              const errData2 = await resp2.json();
+              alert('Erro ao salvar chunks: ' + (errData2.error || resp2.status));
+              console.error('[Chunks] Erro ao salvar:', errData2);
+              return;
+            }
+            console.log('[Chunks] Chunks salvos com sucesso!');
+          }).catch(err2 => {
+            alert('Erro ao salvar chunks.');
+            console.error('[Chunks] Erro ao salvar:', err2);
+          });
+        }).catch(err => {
+          alert('Erro ao apagar chunks antigos.');
+          console.error('[Chunks] Erro ao apagar antigos:', err);
+        });
+      } catch (err) {
+        alert('Erro ao apagar chunks antigos.');
+        console.error('[Chunks] Erro ao apagar antigos:', err);
+      }
+    } else {
+      console.warn('[Chunks] Não há doc_name ou chunks para salvar.');
+    }
+  });
+}
+
+document.getElementById('processSelectedBtn').addEventListener('click', async function() {
+  const checkboxes = document.querySelectorAll('.doc-checkbox');
+  const selected = [];
+  checkboxes.forEach((cb, idx) => { if (cb.checked) selected.push(documentos[idx]); });
+  if (selected.length === 0) return;
+  const csrfToken = getCsrfToken();
+  const processResultsDiv = document.getElementById('processResults');
+  processResultsDiv.innerHTML = '';
+  console.log('[Processamento] Documentos selecionados:', selected.map(d => d.name));
+
+  // Extrair e exibir tópicos do primeiro documento selecionado
+  try {
+    const resp = await fetch('/api/extract-topics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': csrfToken
+      },
+      body: JSON.stringify({ document: selected[0].name })
+    });
+    if (!resp.ok) {
+      const errData = await resp.json();
+      processResultsDiv.innerHTML = `<div style='color:#b71c1c;'><b>Erro ao extrair tópicos:</b> ${errData.error || resp.status}</div>`;
+      return;
+    }
+    const data = await resp.json();
+    if (data.topics && Array.isArray(data.topics) && data.topics.length > 0) {
+      extractedTopics = data.topics.map(t => ({...t, ia_text: '', doc_name: selected[0].name}));
+      currentTopicIndex = 0;
+      renderExtractedTopics();
+    } else {
+      processResultsDiv.innerHTML = '<div style="color:#b71c1c;"><b>Nenhum tópico encontrado no documento.</b></div>';
+    }
+  } catch (err) {
+    processResultsDiv.innerHTML = `<div style='color:#b71c1c;'><b>Erro ao extrair tópicos.</b></div>`;
+    console.error('[Processamento] Erro ao extrair tópicos:', err);
+  }
+});
+
+// Inicializar lista ao carregar a página
+fetchDocumentList();
+
+// Drag and drop global para upload de documentos
+function handleDropUpload(files) {
+  if (!files || files.length === 0) return;
+  const input = document.getElementById('documentInput');
+  const dataTransfer = new DataTransfer();
+  for (let i = 0; i < files.length; i++) {
+    dataTransfer.items.add(files[i]);
+  }
+  input.files = dataTransfer.files;
+  // Disparar submit automático
+  document.getElementById('uploadForm').dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}));
+}
+
+document.addEventListener('dragover', function(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+  // Log para depuração
+  // console.log('Arrastando arquivo sobre a página');
+});
+
+document.addEventListener('drop', function(e) {
+  e.preventDefault();
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+    // Log para depuração
+    console.log('Arquivo(s) solto(s) na página:', e.dataTransfer.files);
+    handleDropUpload(e.dataTransfer.files);
+  }
+});
+</script>
 {% endblock %} 
