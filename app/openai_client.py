@@ -9,6 +9,8 @@ import os
 from openai import OpenAI
 from flask import current_app as app
 from app.database.db_manager import DatabaseManager
+import re
+from collections import defaultdict
 
 # Configuração de logging
 logging.basicConfig(level=logging.INFO)
@@ -445,4 +447,98 @@ def generate_questions(topic, num_questions=5, num_subtopics=3, api_key=None):
     except Exception as e:
         logger.error(f"Erro na função generate_questions: {str(e)}")
         logger.exception("Stacktrace completo:")
-        raise 
+        raise
+
+def build_chunk_prompt(summary_text, document_title=None):
+    """
+    Gera o prompt para chunking de capítulos de resumos, conforme instrução do usuário.
+    summary_text: string contendo o texto do resumo a ser processado.
+    document_title: título do documento (opcional)
+    """
+    title_part = f'Título do documento: {document_title}\n\n' if document_title else ''
+    prompt = f'''{title_part}You are a specialized chunk generator with expertise in text interpretation and extracting important information from texts. Your purpose is to create chunks to serve as additional content for another AI's prompt. These chunks will be used as technical and practical references, examples of correct documentation, examples of behaviors to avoid, and narratives from professionals in the field, among other text forms. You will receive a summary of educational content and need to classify the topics by subject, text form, and provide a synthesis of the subject along with key points. The response should be the topic number, with the subject, followed by a synthesis and important points.
+
+# Steps
+
+1. Receive the educational content summary.
+2. Analyze the content and identify distinct subjects.
+3. Provide a synthesis and list of key points.
+
+# Output Format
+
+- Use "<Tópico X: assunto X>" to indicate the number of the topic, and the main subject of it.
+- Provide a synthesis of the subject with "<Síntese do Tópico X>".
+- List important points with "<Tópicos importantes do Tópico X>".
+
+# Examples
+
+**Example Input:**
+
+"1-Texto sobre assunto A, Texto sobre assunto A, Texto sobre assunto A, Texto sobre assunto A
+ 1.1-Texto sobre assunto A, Texto sobre assunto A
+
+2.-Texto sobre assunto A, Texto sobre assunto A, Texto sobre assunto A, Texto sobre assunto A,
+
+3-Texto sobre assunto B,Texto sobre assunto B, Texto sobre assunto B."
+
+**Desired Output:**
+
+"<Tópico 1: assunto A>
+<Síntese do Tópico 1>
+<Tópicos importantes do Tópico 1>
+
+<Tópico 2: assunto A>
+<Síntese do Tópico 2>
+<Tópicos importantes do Tópico 2>
+
+<Tópico 3: assunto B>
+<Síntese do Tópico 3>
+<Tópicos importantes do Tópico 3>"
+
+# Educational Content Summary
+
+{summary_text}
+'''
+    return prompt
+
+def extract_topic_map(summary_text):
+    """
+    Retorna um dicionário {tópico_principal: [lista de (subtópico, texto)]}
+    """
+    topic_map = defaultdict(list)
+    for line in summary_text.splitlines():
+        match = re.match(r'^(\d+(?:\.\d+)*)-\s*(.*)', line.strip())
+        if match:
+            full_topic = match.group(1)
+            text = match.group(2)
+            main_topic = full_topic.split('.')[0]
+            topic_map[main_topic].append((full_topic, text))
+    return topic_map
+
+def show_ia_response_with_topics(ia_response, summary_text):
+    """
+    Exibe a resposta da IA seguida dos subtópicos do texto original para cada tópico principal.
+    - ia_response: string retornada pela IA (com <Tópico X: ...> ...)
+    - summary_text: texto original do resumo
+    """
+    topic_map = extract_topic_map(summary_text)
+    # Separar blocos da IA por tópico
+    ia_blocks = re.split(r'(<T[óo]pico \d+:)', ia_response)
+    # Reconstruir blocos para manter o cabeçalho junto
+    ia_chunks = []
+    i = 1
+    while i < len(ia_blocks):
+        header = ia_blocks[i]
+        content = ia_blocks[i+1] if i+1 < len(ia_blocks) else ''
+        ia_chunks.append(header + content)
+        i += 2
+    for chunk in ia_chunks:
+        match = re.match(r'<T[óo]pico (\d+):', chunk)
+        if match:
+            main_topic = match.group(1)
+            print(f'\n===== Resposta IA para Tópico {main_topic} =====')
+            print(chunk.strip())
+            print(f'--- Subtópicos do resumo original para Tópico {main_topic} ---')
+            for subtopic, text in topic_map.get(main_topic, []):
+                print(f'  {subtopic}: {text}')
+    print('\n') 
