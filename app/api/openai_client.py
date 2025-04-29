@@ -237,7 +237,7 @@ def generate_questions_with_specialized_models(
                 callback(i + 1, num_questions)
             
             # Gerar questão
-            question = generate_question_with_ai(
+            question, question_prompt, question_chunks = generate_question_with_ai(
                 subtopic,
                 None,
                 client,
@@ -247,7 +247,7 @@ def generate_questions_with_specialized_models(
             
             if question:
                 # Gerar resposta
-                answer = generate_answer_with_ai(
+                answer, answer_prompt, answer_chunks = generate_answer_with_ai(
                     question['question'],
                     None,
                     client,
@@ -257,9 +257,11 @@ def generate_questions_with_specialized_models(
                 
                 if answer:
                     question['answer'] = answer
+                    question['answer_prompt'] = answer_prompt
+                    question['answer_chunks'] = answer_chunks
                     
                     # Gerar distratores
-                    distractors = generate_distractors_with_ai(
+                    distractors, distractors_prompt, distractors_chunks = generate_distractors_with_ai(
                         question['question'],
                         answer,
                         None,
@@ -270,6 +272,10 @@ def generate_questions_with_specialized_models(
                     
                     if distractors:
                         question['distractors'] = distractors
+                        question['distractors_prompt'] = distractors_prompt
+                        question['distractors_chunks'] = distractors_chunks
+                        question['question_prompt'] = question_prompt
+                        question['question_chunks'] = question_chunks
                         questions.append(question)
     
     return questions
@@ -296,79 +302,107 @@ def generate_subtopics(topic: str, num_subtopics: int) -> List[str]:
         logger.error(f"Erro ao gerar subtópicos: {str(e)}")
         return [topic]
 
-def generate_question_with_ai(topic: str, context: str, client: OpenAI, api_key: str, model: str = None) -> Optional[Dict]:
+def generate_question_with_ai(
+    topic: str,
+    chunks: List[str],
+    client: Any,
+    api_key: str,
+    model: str = None
+) -> Tuple[Dict[str, Any], str, List[str]]:
     """Gera uma questão usando IA"""
-    prompt = f"""
-    Gere uma questão de múltipla escolha sobre o tópico: {topic}
-    A questão deve ser clara, concisa e relevante para o exame PMP.
-    Não inclua a resposta ou distratores.
-    """
-    
-    if context:
-        prompt = get_enhanced_prompt(prompt, context)
-    
     try:
+        # Gerar prompt
+        prompt = f"Gere uma questão de múltipla escolha sobre {topic} no estilo PMP."
+        if chunks:
+            prompt += f"\n\nContexto:\n{chr(10).join(chunks)}"
+        
+        # Fazer chamada à API
         response = client.chat.completions.create(
-            model=model or "gpt-3.5-turbo",
+            model=model or "gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos."},
+                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos e certificação PMP."},
                 {"role": "user", "content": prompt}
             ]
         )
-        return {'question': response.choices[0].message.content.strip()}
+        
+        # Processar resposta
+        question_text = response.choices[0].message.content.strip()
+        
+        return {
+            "question": question_text,
+            "topic": topic,
+            "subtopic": ""
+        }, prompt, chunks or []
+        
     except Exception as e:
         logger.error(f"Erro ao gerar questão: {str(e)}")
-        return None
+        return None, None, None
 
-def generate_answer_with_ai(question: str, context: str, client: OpenAI, api_key: str, model: str = None) -> Optional[Dict]:
-    """Gera uma resposta usando IA"""
-    prompt = f"""
-    Gere uma resposta correta para a seguinte questão:
-    {question}
-    A resposta deve ser precisa e bem fundamentada.
-    """
-    
-    if context:
-        prompt = get_enhanced_prompt(prompt, context)
-    
+def generate_answer_with_ai(
+    question: str,
+    chunks: List[str],
+    client: Any,
+    api_key: str,
+    model: str = None
+) -> Tuple[str, str, List[str]]:
+    """Gera uma resposta para a questão usando IA"""
     try:
+        # Gerar prompt
+        prompt = f"Gere uma resposta correta para a seguinte questão PMP:\n\n{question}"
+        if chunks:
+            prompt += f"\n\nContexto:\n{chr(10).join(chunks)}"
+        
+        # Fazer chamada à API
         response = client.chat.completions.create(
-            model=model or "gpt-3.5-turbo",
+            model=model or "gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos."},
+                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos e certificação PMP."},
                 {"role": "user", "content": prompt}
             ]
         )
-        return response.choices[0].message.content.strip()
+        
+        # Processar resposta
+        answer = response.choices[0].message.content.strip()
+        
+        return answer, prompt, chunks or []
+        
     except Exception as e:
         logger.error(f"Erro ao gerar resposta: {str(e)}")
-        return None
+        return None, None, None
 
-def generate_distractors_with_ai(question: str, correct_answer: str, context: str, client: OpenAI, api_key: str, model: str = "gpt-3.5-turbo") -> tuple:
-    """Gera distratores usando IA"""
-    prompt = f"""
-    Gere 3 distratores (respostas incorretas) para a seguinte questão e resposta correta:
-    Questão: {question}
-    Resposta correta: {correct_answer}
-    Os distratores devem ser plausíveis e relacionados ao tópico.
-    """
-    
-    if context:
-        prompt = get_enhanced_prompt(prompt, context)
-    
+def generate_distractors_with_ai(
+    question: str,
+    correct_answer: str,
+    chunks: List[str],
+    client: Any,
+    api_key: str,
+    model: str = None
+) -> Tuple[List[str], str, List[str]]:
+    """Gera distratores para a questão usando IA"""
     try:
+        # Gerar prompt
+        prompt = f"Gere 3 alternativas incorretas (distratores) para a seguinte questão PMP:\n\n{question}\n\nResposta correta: {correct_answer}"
+        if chunks:
+            prompt += f"\n\nContexto:\n{chr(10).join(chunks)}"
+        
+        # Fazer chamada à API
         response = client.chat.completions.create(
-            model=model,
+            model=model or "gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos."},
+                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos e certificação PMP."},
                 {"role": "user", "content": prompt}
             ]
         )
-        distractors = response.choices[0].message.content.strip().split('\n')
-        return tuple(d.strip() for d in distractors[:3])
+        
+        # Processar resposta
+        distractors_text = response.choices[0].message.content.strip()
+        distractors = [d.strip() for d in distractors_text.split('\n') if d.strip()]
+        
+        return distractors, prompt, chunks or []
+        
     except Exception as e:
         logger.error(f"Erro ao gerar distratores: {str(e)}")
-        return None
+        return None, None, None
 
 def generate_wrong_answers_with_ai(question: str, correct_answer: str, context: str, client: OpenAI, api_key: str, model: str = None) -> Optional[List[str]]:
     """Gera respostas incorretas usando IA"""
