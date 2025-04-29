@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block title %}Visualização do Banco de Dados{% endblock %}
+{% block header_title %}Visualização do Banco de Dados{% endblock %}
+
+{% block head %}
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <style>
+    .table-responsive {
+      overflow-x: auto;
+    }
+    .question-text {
+      max-width: 300px;
+      white-space: normal;
+      word-wrap: break-word;
+    }
+    .explanation-text {
+      max-width: 200px;
+      white-space: normal;
+      word-wrap: break-word;
+    }
+    .options-list {
+      list-style-type: none;
+      padding-left: 0;
+    }
+    .options-list li {
+      margin-bottom: 5px;
+    }
+    .correct-answer {
+      font-weight: bold;
+      color: #28a745;
+    }
+    .action-buttons {
+      white-space: nowrap;
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2>Visualizador do Banco de Dados</h2>
+                <div>
+                    <a href="{{ url_for('main.index') }}" class="btn btn-secondary">Voltar</a>
+                    <a href="{{ url_for('main.settings') }}" class="btn btn-primary">Configurações</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h3>Questões</h3>
+                        <div>
+                            <input type="text" id="searchInput" class="form-control" placeholder="Buscar questões...">
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Tópico</th>
+                                    <th>Sub-tópico</th>
+                                    <th>Questão</th>
+                                    <th>Opções</th>
+                                    <th>Resposta Correta</th>
+                                    <th>Explicação</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for question in questions %}
+                                <tr>
+                                    <td>{{ question.id }}</td>
+                                    <td>{{ question.topic }}</td>
+                                    <td>{{ question.subtopic }}</td>
+                                    <td class="question-text">{{ question.question }}</td>
+                                    <td>
+                                        <ul class="options-list">
+                                            {% for option in question.options %}
+                                            <li class="{% if loop.index0 == question.correct_answer|int %}correct-answer{% endif %}">
+                                                {{ option }}
+                                            </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </td>
+                                    <td>{{ question.correct_answer }}</td>
+                                    <td class="explanation-text">{{ question.explanation }}</td>
+                                    <td class="action-buttons">
+                                        <a href="{{ url_for('edit_question', question_id=question.id) }}" class="btn btn-sm btn-primary">Editar</a>
+                                        <a href="{{ url_for('delete_question', question_id=question.id) }}" 
+                                           class="btn btn-sm btn-danger" 
+                                           onclick="return confirm('Tem certeza que deseja excluir esta questão?')">Excluir</a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+document.getElementById('searchInput').addEventListener('keyup', function() {
+    var input = this.value.toLowerCase();
+    var table = document.querySelector('table');
+    var rows = table.getElementsByTagName('tr');
+
+    for (var i = 1; i < rows.length; i++) {
+        var row = rows[i];
+        var cells = row.getElementsByTagName('td');
+        var found = false;
+
+        for (var j = 0; j < cells.length; j++) {
+            var cell = cells[j];
+            if (cell.textContent.toLowerCase().indexOf(input) > -1) {
+                found = true;
+                break;
+            }
+        }
+
+        row.style.display = found ? '' : 'none';
+    }
+});
+</script>
+{% endblock %}
+{% endblock %} 
