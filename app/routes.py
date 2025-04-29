@@ -209,7 +209,7 @@ def change_api_key():
     return render_template(
         'settings.html',
         form=form,
-        openai_api_key=openai_api_key,
+                         openai_api_key=openai_api_key,
         other_api_key=other_api_key
     )
 
@@ -734,6 +734,23 @@ def delete_chunks():
     try:
         data = request.get_json()
         document_title = data.get('document')
+        chunk_id = data.get('chunk_id')
+        
+        if chunk_id:
+            # Excluir chunk específico
+            chunk = TextChunk.query.get(chunk_id)
+            if not chunk:
+                logger.error(f'[DELETE-CHUNKS] Chunk não encontrado: {chunk_id}')
+                return jsonify({'error': 'Chunk não encontrado'}), 404
+            if chunk.user_id != current_user.id:
+                logger.error(f'[DELETE-CHUNKS] Tentativa de excluir chunk de outro usuário: {chunk_id}')
+                return jsonify({'error': 'Não autorizado'}), 403
+            db.session.delete(chunk)
+            db.session.commit()
+            logger.info(f'[DELETE-CHUNKS] Chunk {chunk_id} removido')
+            return jsonify({'success': True, 'deleted': 1})
+        
+        # Excluir chunks por documento
         if not document_title:
             logger.error('[DELETE-CHUNKS] Parâmetro documento ausente')
             return jsonify({'error': 'Parâmetro documento ausente'}), 400
