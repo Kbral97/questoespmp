@@ -26,7 +26,7 @@ os.environ['KIVY_USE_MOUSE'] = '1'
 os.environ['KIVY_USE_TOUCH'] = '0'
 
 # Configuração básica
-bind = "0.0.0.0:8000"
+bind = "0.0.0.0:5000"
 workers = multiprocessing.cpu_count() * 2 + 1
 timeout = 120
 keepalive = 5
