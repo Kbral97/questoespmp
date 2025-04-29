@@ -1,0 +1,6 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+não usar && para mais de um comando no powershel, use ;

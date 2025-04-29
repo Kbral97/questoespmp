@@ -447,7 +447,7 @@ def generate_questions(topic, num_questions=5, num_subtopics=3, api_key=None):
     except Exception as e:
         logger.error(f"Erro na função generate_questions: {str(e)}")
         logger.exception("Stacktrace completo:")
-        raise
+        raise 
 
 def build_chunk_prompt(summary_text, document_title=None):
     """
