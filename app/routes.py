@@ -18,7 +18,8 @@ import tempfile
 from werkzeug.utils import secure_filename
 
 # Importar usando caminho relativo
-from .openai_client import generate_questions, generate_questions_with_specialized_models, show_ia_response_with_topics
+# from .openai_client import generate_questions, generate_questions_with_specialized_models, show_ia_response_with_topics
+from app.api.openai_client import generate_questions, generate_questions_with_specialized_models
 from .database.db_manager import DatabaseManager
 from app.api.openai_client import get_openai_client
 from app.openai_client import build_chunk_prompt
@@ -35,6 +36,9 @@ load_dotenv()
 
 # Criar blueprint
 main = Blueprint('main', __name__)
+
+# Inicializar o gerenciador de banco de dados
+db = DatabaseManager()
 
 @main.route('/')
 def index():
@@ -158,27 +162,55 @@ def generate():
         logger.info(f"Generating {num_questions} questions for topic: {topic} with {num_subtopics} subtopics")
         
         try:
-            questions = generate_questions(topic=topic, num_questions=num_questions, num_subtopics=num_subtopics)
+            client = get_openai_client()
+            questions = generate_questions(
+                topic=topic,
+                num_questions=num_questions,
+                client=client,
+                api_key=os.getenv('OPENAI_API_KEY'),
+                model="gpt-4",
+                num_subtopics=num_subtopics
+            )
+            
+            if not questions:
+                logger.error("No questions generated")
+                return jsonify({'error': 'Failed to generate questions'}), 500
             
             # Update user statistics
             if current_user.is_authenticated:
-                stats = Statistics.query.filter_by(user_id=current_user.id).first()
-                if not stats:
-                    stats = Statistics(user_id=current_user.id, total_questions=0, correct_answers=0, incorrect_answers=0)
-                    db.session.add(stats)
-                if stats.total_questions is None:
-                    stats.total_questions = 0
-                stats.total_questions += num_questions
-                stats.last_updated = datetime.utcnow()
-                db.session.commit()
+                with db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    # Check if stats exist for user
+                    cursor.execute('''
+                        SELECT id FROM user_statistics WHERE topic = ?
+                    ''', (topic,))
+                    stats = cursor.fetchone()
+                    
+                    if stats:
+                        # Update existing stats
+                        cursor.execute('''
+                            UPDATE user_statistics 
+                            SET questions_answered = questions_answered + ?,
+                                last_session = CURRENT_TIMESTAMP
+                            WHERE topic = ?
+                        ''', (num_questions, topic))
+                    else:
+                        # Create new stats
+                        cursor.execute('''
+                            INSERT INTO user_statistics (
+                                topic, questions_answered, correct_answers, last_session
+                            ) VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+                        ''', (topic, num_questions))
+                    
+                    conn.commit()
             
             return jsonify({'questions': questions})
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
-            return jsonify({'error': 'Error generating questions'}), 500
+            return jsonify({'error': str(e)}), 500
     except Exception as e:
         logger.error(f"Error processing request: {str(e)}")
-        return jsonify({'error': 'Error processing request'}), 500
+        return jsonify({'error': str(e)}), 500
 
 @main.route('/settings', methods=['GET', 'POST'])
 @login_required
@@ -760,4 +792,32 @@ def delete_chunks():
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
         logger.error(f'[DELETE-CHUNKS] Erro ao apagar chunks: {str(e)}')
-        return jsonify({'error': str(e)}), 500 
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/prompt/<int:prompt_id>')
+def get_prompt(prompt_id):
+    prompt = db.get_prompt(prompt_id)
+    if prompt:
+        return jsonify(prompt)
+    return jsonify({'error': 'Prompt não encontrado'}), 404
+
+@main.route('/api/chunk/<int:chunk_id>')
+def get_chunk(chunk_id):
+    chunk = db.get_chunk(chunk_id)
+    if chunk:
+        return jsonify(chunk)
+    return jsonify({'error': 'Chunk não encontrado'}), 404
+
+@main.route('/api/question/<int:question_id>', methods=['DELETE'])
+@login_required
+def delete_question(question_id):
+    """Deleta uma questão específica"""
+    try:
+        db = DatabaseManager()
+        if db.delete_question(question_id):
+            return jsonify({'success': True, 'message': 'Questão excluída com sucesso'})
+        else:
+            return jsonify({'success': False, 'error': 'Questão não encontrada'}), 404
+    except Exception as e:
+        logger.error(f"Erro ao excluir questão {question_id}: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500 

@@ -395,118 +395,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error(data.error);
             }
             
+            // Armazenar as questões geradas globalmente
+            window.generatedQuestions = data.questions;
+            
             // Mostrar questões geradas
             const questionsContainer = document.getElementById('generatedQuestions');
             questionsContainer.innerHTML = '';
             
             data.questions.forEach((question, index) => {
-                console.log('Processando questão:', index, question);
-                
                 const questionCard = document.createElement('div');
                 questionCard.className = 'mdc-card question-card';
                 questionCard.style.marginBottom = '1rem';
                 questionCard.style.padding = '1rem';
                 
-                // Verificar se os campos existem
-                const hasQuestionDetails = question.question_prompt || question.question_chunks;
-                const hasAnswerDetails = question.answer_prompt || question.answer_chunks;
-                const hasDistractorsDetails = question.distractors_prompt || question.distractors_chunks;
-                
-                console.log('Detalhes disponíveis:', {
-                    question: hasQuestionDetails,
-                    answer: hasAnswerDetails,
-                    distractors: hasDistractorsDetails
-                });
-                
-                const questionContent = `
-                    <div class="question-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h3 class="mdc-typography--headline6">Questão ${index + 1}</h3>
-                            <button class="mdc-button mdc-button--icon" onclick="toggleQuestionDetails(${index})">
-                                <span class="mdc-button__ripple"></span>
-                                <i class="material-icons mdc-button__icon">add</i>
-                            </button>
-                        </div>
-                        <div class="mdc-chip-set">
-                            <div class="mdc-chip">
-                                <div class="mdc-chip__text">Tópico: ${question.topic}</div>
-                            </div>
-                            <div class="mdc-chip">
-                                <div class="mdc-chip__text">Sub-tópico: ${question.subtopic}</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="question-body">
-                        <p class="mdc-typography--body1">${question.question}</p>
-                        <div class="mdc-list">
-                            ${question.options.map((option, i) => `
-                                <div class="mdc-list-item">
-                                    <span class="mdc-list-item__ripple"></span>
-                                    <span class="mdc-list-item__text">${String.fromCharCode(65 + i)}. ${option}</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                    <div class="question-details" id="questionDetails${index}" style="display: none;">
-                        <div class="mdc-card" style="margin-top: 16px;">
-                            <div class="mdc-card__content">
-                                <h4 class="mdc-typography--subtitle1">Detalhes da Geração</h4>
-                                
-                                <!-- IA de Geração de Pergunta -->
-                                <div class="ai-section">
-                                    <h5 class="mdc-typography--subtitle2">IA de Geração de Pergunta</h5>
-                                    <div class="mdc-typography--body2">
-                                        <strong>Prompt:</strong>
-                                        <pre>{{ question.generation_details.question.prompt }}</pre>
-                                        <strong>Chunks Utilizados:</strong>
-                                        <pre>{% if question.generation_details.question.chunks %}
-{{ question.generation_details.question.chunks | tojson(indent=2) }}
-{% else %}
-Nenhum chunk utilizado
-{% endif %}</pre>
-                                        <strong>Resposta Gerada:</strong>
-                                        <pre>{{ question.generation_details.question.response }}</pre>
-                                    </div>
-                                </div>
-                                
-                                <!-- IA de Geração de Resposta -->
-                                <div class="ai-section">
-                                    <h5 class="mdc-typography--subtitle2">IA de Geração de Resposta</h5>
-                                    <div class="mdc-typography--body2">
-                                        <strong>Prompt:</strong>
-                                        <pre>{{ question.generation_details.answer.prompt }}</pre>
-                                        <strong>Chunks Utilizados:</strong>
-                                        <pre>{% if question.generation_details.answer.chunks %}
-{{ question.generation_details.answer.chunks | tojson(indent=2) }}
-{% else %}
-Nenhum chunk utilizado
-{% endif %}</pre>
-                                        <strong>Resposta Gerada:</strong>
-                                        <pre>{{ question.generation_details.answer.response }}</pre>
-                                    </div>
-                                </div>
-                                
-                                <!-- IA de Geração de Distratores -->
-                                <div class="ai-section">
-                                    <h5 class="mdc-typography--subtitle2">IA de Geração de Distratores</h5>
-                                    <div class="mdc-typography--body2">
-                                        <strong>Prompt:</strong>
-                                        <pre>{{ question.generation_details.distractors.prompt }}</pre>
-                                        <strong>Chunks Utilizados:</strong>
-                                        <pre>{% if question.generation_details.distractors.chunks %}
-{{ question.generation_details.distractors.chunks | tojson(indent=2) }}
-{% else %}
-Nenhum chunk utilizado
-{% endif %}</pre>
-                                        <strong>Resposta Gerada:</strong>
-                                        <pre>{{ question.generation_details.distractors.response }}</pre>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
+                const questionContent = createQuestionHTML(question, index);
                 questionCard.innerHTML = questionContent;
                 questionsContainer.appendChild(questionCard);
             });
@@ -522,21 +424,211 @@ Nenhum chunk utilizado
     });
 });
 
+// Função para montar o HTML da questão
+function createQuestionHTML(question, index) {
+    const hasGenerationDetails = question.question_prompt_id && 
+        question.answer_prompt_id && 
+        question.distractors_prompt_id;
+    
+    const hasDistractorIssues = question.distractor_issues && question.distractor_issues.length > 0;
+
+    return `
+        <div class="question-card mdc-card" style="margin-bottom: 1rem; padding: 1rem;" id="question-${index}">
+            <div class="question-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <h3 class="mdc-typography--headline6" style="margin-right: 16px;">Questão ${index + 1}</h3>
+                        ${hasDistractorIssues ? `
+                            <div class="mdc-chip warning-chip" title="Problemas com distratores">
+                                <i class="material-icons" style="color: #ff9800; margin-right: 4px;">warning</i>
+                                <span class="mdc-chip__text">Problemas com distratores</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div>
+                        <button class="mdc-button mdc-button--icon" onclick="toggleAnswer(${index})">
+                            <span class="mdc-button__ripple"></span>
+                            <i class="material-icons mdc-button__icon">visibility</i>
+                        </button>
+                        <button class="mdc-button mdc-button--icon" onclick="toggleQuestionDetails(${index})">
+                            <span class="mdc-button__ripple"></span>
+                            <i class="material-icons mdc-button__icon">add</i>
+                        </button>
+                        <button class="mdc-button mdc-button--icon" onclick="deleteQuestion(${index})" title="Excluir questão">
+                            <span class="mdc-button__ripple"></span>
+                            <i class="material-icons mdc-button__icon" style="color: #dc3545;">delete</i>
+                        </button>
+                    </div>
+                </div>
+                <div class="mdc-chip-set">
+                    <div class="mdc-chip">
+                        <div class="mdc-chip__text">Tópico: ${question.topic}</div>
+                    </div>
+                    <div class="mdc-chip">
+                        <div class="mdc-chip__text">Sub-tópico: ${question.subtopic}</div>
+                    </div>
+                </div>
+                ${hasDistractorIssues ? `
+                    <div class="distractor-issues" style="margin-top: 8px; padding: 8px; background-color: #fff3e0; border-radius: 4px;">
+                        <p class="mdc-typography--body2" style="color: #e65100; margin: 0;">
+                            <i class="material-icons" style="font-size: 16px; vertical-align: text-bottom;">info</i>
+                            Problemas encontrados:
+                        </p>
+                        <ul style="margin: 4px 0 0 0; padding-left: 24px;">
+                            ${question.distractor_issues.map(issue => `
+                                <li class="mdc-typography--body2" style="color: #e65100;">${issue}</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+            </div>
+            <div class="question-body">
+                <p class="mdc-typography--body1">${question.full_question}</p>
+                <div class="mdc-list">
+                    ${Object.entries(question.options).map(([letter, text]) => `
+                        <div class="mdc-list-item">
+                            <span class="mdc-list-item__ripple"></span>
+                            <span class="mdc-list-item__text">${letter}. ${text}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+            <div class="answer-section" id="answerSection${index}" style="display: none;">
+                <h4 class="mdc-typography--subtitle1">Resposta e Justificativa</h4>
+                <div class="mdc-typography--body1">
+                    <p><strong>Resposta Correta:</strong> ${question.correct_answer}</p>
+                    <p><strong>Justificativa:</strong> ${question.justification}</p>
+                </div>
+            </div>
+            <div class="question-details" id="questionDetails${index}" style="display: none;">
+                <div class="mdc-card" style="margin-top: 16px;">
+                    <div class="mdc-card__content">
+                        <h4 class="mdc-typography--subtitle1">Detalhes da Geração</h4>
+                        ${hasGenerationDetails ? `
+                            <!-- IA de Geração de Pergunta -->
+                            <div class="ai-section">
+                                <h5 class="mdc-typography--subtitle2">IA de Geração de Pergunta</h5>
+                                <div class="mdc-typography--body2">
+                                    <strong>Prompt:</strong>
+                                    <pre id="questionPrompt${index}">Carregando...</pre>
+                                    <strong>Chunks Utilizados:</strong>
+                                    <pre id="questionChunks${index}">Carregando...</pre>
+                                </div>
+                            </div>
+                            
+                            <!-- IA de Geração de Resposta -->
+                            <div class="ai-section">
+                                <h5 class="mdc-typography--subtitle2">IA de Geração de Resposta</h5>
+                                <div class="mdc-typography--body2">
+                                    <strong>Prompt:</strong>
+                                    <pre id="answerPrompt${index}">Carregando...</pre>
+                                    <strong>Chunks Utilizados:</strong>
+                                    <pre id="answerChunks${index}">Carregando...</pre>
+                                </div>
+                            </div>
+                            
+                            <!-- IA de Geração de Distratores -->
+                            <div class="ai-section">
+                                <h5 class="mdc-typography--subtitle2">IA de Geração de Distratores</h5>
+                                <div class="mdc-typography--body2">
+                                    <strong>Prompt:</strong>
+                                    <pre id="distractorsPrompt${index}">Carregando...</pre>
+                                    <strong>Chunks Utilizados:</strong>
+                                    <pre id="distractorsChunks${index}">Carregando...</pre>
+                                </div>
+                            </div>
+                        ` : `
+                            <p class="mdc-typography--body1">Detalhes de geração não disponíveis.</p>
+                        `}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 // Função para alternar a visibilidade da resposta
 function toggleAnswer(index) {
-    const answerSection = document.getElementById(`answer-${index}`);
-    const button = event.currentTarget;
-    
-    if (answerSection.style.display === 'none') {
-        answerSection.style.display = 'block';
-        button.querySelector('.mdc-button__label').textContent = 'Ocultar Resposta';
-    } else {
-        answerSection.style.display = 'none';
-        button.querySelector('.mdc-button__label').textContent = 'Mostrar Resposta';
+    const answerSection = document.getElementById(`answerSection${index}`);
+    if (answerSection) {
+        answerSection.style.display = answerSection.style.display === 'none' ? 'block' : 'none';
     }
 }
 
-// Adicionar função para alternar a visibilidade dos detalhes
+// Função para carregar os detalhes de geração
+function loadGenerationDetails(question, index) {
+    if (!question.question_prompt_id) return;
+
+    // Carregar prompts
+    fetch(`/api/prompt/${question.question_prompt_id}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById(`questionPrompt${index}`).textContent = data.prompt_text;
+        })
+        .catch(error => console.error('Erro ao carregar prompt da pergunta:', error));
+
+    fetch(`/api/prompt/${question.answer_prompt_id}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById(`answerPrompt${index}`).textContent = data.prompt_text;
+        })
+        .catch(error => console.error('Erro ao carregar prompt da resposta:', error));
+
+    fetch(`/api/prompt/${question.distractors_prompt_id}`)
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById(`distractorsPrompt${index}`).textContent = data.prompt_text;
+        })
+        .catch(error => console.error('Erro ao carregar prompt dos distratores:', error));
+
+    // Carregar chunks
+    fetch(`/api/chunk/${question.question_chunk_id}`)
+        .then(response => response.json())
+        .then(data => {
+            const chunksElement = document.getElementById(`questionChunks${index}`);
+            if (chunksElement) {
+                try {
+                    const chunks = JSON.parse(data.content);
+                    chunksElement.textContent = JSON.stringify(chunks, null, 2);
+                } catch (e) {
+                    chunksElement.textContent = data.content;
+                }
+            }
+        })
+        .catch(error => console.error('Erro ao carregar chunks da pergunta:', error));
+
+    fetch(`/api/chunk/${question.answer_chunk_id}`)
+        .then(response => response.json())
+        .then(data => {
+            const chunksElement = document.getElementById(`answerChunks${index}`);
+            if (chunksElement) {
+                try {
+                    const chunks = JSON.parse(data.content);
+                    chunksElement.textContent = JSON.stringify(chunks, null, 2);
+                } catch (e) {
+                    chunksElement.textContent = data.content;
+                }
+            }
+        })
+        .catch(error => console.error('Erro ao carregar chunks da resposta:', error));
+
+    fetch(`/api/chunk/${question.distractors_chunk_id}`)
+        .then(response => response.json())
+        .then(data => {
+            const chunksElement = document.getElementById(`distractorsChunks${index}`);
+            if (chunksElement) {
+                try {
+                    const chunks = JSON.parse(data.content);
+                    chunksElement.textContent = JSON.stringify(chunks, null, 2);
+                } catch (e) {
+                    chunksElement.textContent = data.content;
+                }
+            }
+        })
+        .catch(error => console.error('Erro ao carregar chunks dos distratores:', error));
+}
+
+// Atualizar a função toggleQuestionDetails
 function toggleQuestionDetails(index) {
     console.log('Tentando alternar detalhes para questão:', index);
     
@@ -546,7 +638,6 @@ function toggleQuestionDetails(index) {
         return;
     }
     
-    // Encontrar o botão de forma mais segura
     const questionCard = detailsElement.closest('.question-card');
     if (!questionCard) {
         console.error('Card da questão não encontrado');
@@ -570,6 +661,12 @@ function toggleQuestionDetails(index) {
         detailsElement.style.display = 'block';
         icon.textContent = 'remove';
         console.log('Detalhes exibidos para questão:', index);
+        
+        // Carregar detalhes quando exibir
+        const question = window.generatedQuestions[index];
+        if (question) {
+            loadGenerationDetails(question, index);
+        }
     } else {
         detailsElement.style.display = 'none';
         icon.textContent = 'add';
@@ -628,6 +725,70 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// Função para excluir uma questão
+async function deleteQuestion(index) {
+    if (!window.generatedQuestions || !window.generatedQuestions[index]) {
+        console.error('Questão não encontrada');
+        return;
+    }
+
+    const question = window.generatedQuestions[index];
+    const questionElement = document.getElementById(`question-${index}`);
+    
+    if (!questionElement) {
+        console.error('Elemento da questão não encontrado');
+        return;
+    }
+
+    // Confirmar exclusão
+    if (!confirm('Tem certeza que deseja excluir esta questão?')) {
+        return;
+    }
+
+    try {
+        // Se a questão tem ID, excluir do banco de dados
+        if (question.id) {
+            const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+            
+            const response = await fetch(`/api/question/${question.id}`, {
+                method: 'DELETE',
+                headers: {
+                    'X-CSRFToken': csrfToken
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error('Falha ao excluir questão do banco de dados');
+            }
+        }
+
+        // Remover questão do array
+        window.generatedQuestions.splice(index, 1);
+        
+        // Remover elemento da interface
+        questionElement.remove();
+        
+        // Atualizar índices das questões restantes
+        const remainingQuestions = document.querySelectorAll('.question-card');
+        remainingQuestions.forEach((element, idx) => {
+            const titleElement = element.querySelector('.mdc-typography--headline6');
+            if (titleElement) {
+                titleElement.textContent = `Questão ${idx + 1}`;
+            }
+        });
+
+        // Se não houver mais questões, ocultar a seção de resultados
+        if (window.generatedQuestions.length === 0) {
+            document.getElementById('resultsSection').style.display = 'none';
+        }
+
+    } catch (error) {
+        console.error('Erro ao excluir questão:', error);
+        alert('Erro ao excluir questão: ' + error.message);
+    }
+}
 </script>
 
 <style>

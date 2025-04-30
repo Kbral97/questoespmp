@@ -39,6 +39,85 @@
               <span class="mdc-button__label">Configurações</span>
             </a>
           </div>
+          <div class="card mb-4">
+            <div class="card-header">
+              <h5 class="mb-0">Detalhes da Geração</h5>
+            </div>
+            <div class="card-body">
+              {% if generation_details %}
+                <!-- Detalhes da Pergunta -->
+                <div class="mb-4">
+                  <h6>Pergunta</h6>
+                  <div class="card">
+                    <div class="card-body">
+                      <h6>Prompt</h6>
+                      <pre class="bg-light p-3 rounded">{{ generation_details.question.prompt }}</pre>
+                      
+                      <h6>Chunks Utilizados</h6>
+                      <div class="chunks-container">
+                        {% for chunk in generation_details.question.chunks %}
+                          <div class="chunk-item">
+                            <pre class="bg-light p-3 rounded">{{ chunk }}</pre>
+                          </div>
+                        {% endfor %}
+                      </div>
+                      
+                      <h6>Resposta Bruta</h6>
+                      <pre class="bg-light p-3 rounded">{{ generation_details.question.raw_response }}</pre>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Detalhes da Resposta -->
+                <div class="mb-4">
+                  <h6>Resposta</h6>
+                  <div class="card">
+                    <div class="card-body">
+                      <h6>Prompt</h6>
+                      <pre class="bg-light p-3 rounded">{{ generation_details.answer.prompt }}</pre>
+                      
+                      <h6>Chunks Utilizados</h6>
+                      <div class="chunks-container">
+                        {% for chunk in generation_details.answer.chunks %}
+                          <div class="chunk-item">
+                            <pre class="bg-light p-3 rounded">{{ chunk }}</pre>
+                          </div>
+                        {% endfor %}
+                      </div>
+                      
+                      <h6>Resposta Bruta</h6>
+                      <pre class="bg-light p-3 rounded">{{ generation_details.answer.raw_response }}</pre>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Detalhes dos Distratores -->
+                <div class="mb-4">
+                  <h6>Distratores</h6>
+                  <div class="card">
+                    <div class="card-body">
+                      <h6>Prompt</h6>
+                      <pre class="bg-light p-3 rounded">{{ generation_details.distractors.prompt }}</pre>
+                      
+                      <h6>Chunks Utilizados</h6>
+                      <div class="chunks-container">
+                        {% for chunk in generation_details.distractors.chunks %}
+                          <div class="chunk-item">
+                            <pre class="bg-light p-3 rounded">{{ chunk }}</pre>
+                          </div>
+                        {% endfor %}
+                      </div>
+                      
+                      <h6>Resposta Bruta</h6>
+                      <pre class="bg-light p-3 rounded">{{ generation_details.distractors.raw_response }}</pre>
+                    </div>
+                  </div>
+                </div>
+              {% else %}
+                <p class="text-muted">Nenhum detalhe de geração disponível.</p>
+              {% endif %}
+            </div>
+          </div>
         </div>
       </div>
     </div>
