@@ -457,11 +457,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h5 class="mdc-typography--subtitle2">IA de Geração de Pergunta</h5>
                                     <div class="mdc-typography--body2">
                                         <strong>Prompt:</strong>
-                                        <pre>${question.question_prompt || 'Não disponível'}</pre>
+                                        <pre>{{ question.generation_details.question.prompt }}</pre>
                                         <strong>Chunks Utilizados:</strong>
-                                        <pre>${question.question_chunks ? JSON.stringify(question.question_chunks, null, 2) : 'Não disponível'}</pre>
+                                        <pre>{% if question.generation_details.question.chunks %}
+{{ question.generation_details.question.chunks | tojson(indent=2) }}
+{% else %}
+Nenhum chunk utilizado
+{% endif %}</pre>
                                         <strong>Resposta Gerada:</strong>
-                                        <pre>${question.question}</pre>
+                                        <pre>{{ question.generation_details.question.response }}</pre>
                                     </div>
                                 </div>
                                 
@@ -470,11 +474,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h5 class="mdc-typography--subtitle2">IA de Geração de Resposta</h5>
                                     <div class="mdc-typography--body2">
                                         <strong>Prompt:</strong>
-                                        <pre>${question.answer_prompt || 'Não disponível'}</pre>
+                                        <pre>{{ question.generation_details.answer.prompt }}</pre>
                                         <strong>Chunks Utilizados:</strong>
-                                        <pre>${question.answer_chunks ? JSON.stringify(question.answer_chunks, null, 2) : 'Não disponível'}</pre>
+                                        <pre>{% if question.generation_details.answer.chunks %}
+{{ question.generation_details.answer.chunks | tojson(indent=2) }}
+{% else %}
+Nenhum chunk utilizado
+{% endif %}</pre>
                                         <strong>Resposta Gerada:</strong>
-                                        <pre>${question.answer || 'Não disponível'}</pre>
+                                        <pre>{{ question.generation_details.answer.response }}</pre>
                                     </div>
                                 </div>
                                 
@@ -483,11 +491,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <h5 class="mdc-typography--subtitle2">IA de Geração de Distratores</h5>
                                     <div class="mdc-typography--body2">
                                         <strong>Prompt:</strong>
-                                        <pre>${question.distractors_prompt || 'Não disponível'}</pre>
+                                        <pre>{{ question.generation_details.distractors.prompt }}</pre>
                                         <strong>Chunks Utilizados:</strong>
-                                        <pre>${question.distractors_chunks ? JSON.stringify(question.distractors_chunks, null, 2) : 'Não disponível'}</pre>
+                                        <pre>{% if question.generation_details.distractors.chunks %}
+{{ question.generation_details.distractors.chunks | tojson(indent=2) }}
+{% else %}
+Nenhum chunk utilizado
+{% endif %}</pre>
                                         <strong>Resposta Gerada:</strong>
-                                        <pre>${question.distractors ? JSON.stringify(question.distractors, null, 2) : 'Não disponível'}</pre>
+                                        <pre>{{ question.generation_details.distractors.response }}</pre>
                                     </div>
                                 </div>
                             </div>

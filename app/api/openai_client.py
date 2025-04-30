@@ -151,7 +151,7 @@ def generate_questions(
                 continue
 
             # 3. Terceira IA: Gera os distratores
-            distractors = generate_distractors(
+            distractors_data = generate_distractors(
                 question_data=question_data,
                 answer_data=answer_data,
                 topic=topic,
@@ -160,7 +160,7 @@ def generate_questions(
                 api_key=api_key,
                 model=model
             )
-            if not distractors:
+            if not distractors_data:
                 logger.error(f"Falha ao gerar distratores para questão {i+1}")
                 continue
 
@@ -170,9 +170,9 @@ def generate_questions(
                 "question": question_data["question"],
                 "full_question": question_data["full_question"],
                 "options": {
-                    "A": distractors[0],
-                    "B": distractors[1],
-                    "C": distractors[2],
+                    "A": distractors_data["distractors"][0],
+                    "B": distractors_data["distractors"][1],
+                    "C": distractors_data["distractors"][2],
                     "D": answer_data["correct_answer"]
                 },
                 "correct_answer": "D",
@@ -181,9 +181,23 @@ def generate_questions(
                 "practical_examples": answer_data["practical_examples"],
                 "topic": topic,
                 "subtopic": subtopic,
-                "relevant_chunks": {
-                    "question": question_data["relevant_chunks"],
-                    "answer": answer_data["relevant_chunks"]
+                # Incluir todos os detalhes de geração
+                "generation_details": {
+                    "question": {
+                        "prompt": question_data.get("prompt", "Não disponível"),
+                        "chunks": question_data.get("relevant_chunks", []),
+                        "response": question_data.get("raw_response", "Não disponível")
+                    },
+                    "answer": {
+                        "prompt": answer_data.get("prompt", "Não disponível"),
+                        "chunks": answer_data.get("relevant_chunks", []),
+                        "response": answer_data.get("raw_response", "Não disponível")
+                    },
+                    "distractors": {
+                        "prompt": distractors_data.get("prompt", "Não disponível"),
+                        "chunks": distractors_data.get("relevant_chunks", []),
+                        "response": distractors_data.get("raw_response", "Não disponível")
+                    }
                 }
             }
             questions.append(question)
@@ -459,6 +473,8 @@ Formato esperado:
         # Combinar cenário e pergunta
         question_data["full_question"] = f"{question_data['scenario']}\n\n{question_data['question']}"
         question_data["relevant_chunks"] = relevant_chunks
+        question_data["prompt"] = prompt
+        question_data["raw_response"] = response_text
         
         return question_data
 
@@ -539,6 +555,8 @@ Formato esperado:
             return None
 
         answer_data["relevant_chunks"] = relevant_chunks
+        answer_data["prompt"] = prompt
+        answer_data["raw_response"] = response_text
         return answer_data
 
     except Exception as e:
@@ -553,7 +571,7 @@ def generate_distractors(
     client: Any,
     api_key: str,
     model: str = None
-) -> List[str]:
+) -> Dict[str, Any]:
     """Gera distratores baseados na pergunta e resposta correta"""
     try:
         # Buscar chunks relevantes para a resposta
@@ -636,7 +654,13 @@ Formato esperado:
                 logger.error(f"Distrator com tamanho fora do intervalo permitido ({min_length}-{max_length} palavras): {distractor}")
                 return None
 
-        return distractors
+        # Retornar como dicionário para incluir metadados
+        return {
+            "distractors": distractors,
+            "relevant_chunks": relevant_chunks,
+            "prompt": prompt,
+            "raw_response": response_text
+        }
 
     except Exception as e:
         logger.error(f"Erro ao gerar distratores: {str(e)}")
