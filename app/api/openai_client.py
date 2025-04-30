@@ -18,6 +18,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import csv
 from app.database.db_manager import DatabaseManager
+import random
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -114,25 +115,84 @@ def get_enhanced_prompt(base_prompt: str, relevant_files: List[Dict]) -> str:
 
 def generate_questions(
     topic: str,
+    subtopic: str,
     num_questions: int,
-    model: str = None,
-    api_key: str = None,
-    relevant_chunks: List[str] = None,
-    progress_callback=None
+    client: Any,
+    api_key: str,
+    model: str = None
 ) -> List[Dict[str, Any]]:
-    """Gera questões sobre um tópico específico"""
-    client = get_openai_client(api_key)
-    questions = []
-    
-    for i in range(num_questions):
-        if progress_callback:
-            progress_callback(i + 1, num_questions)
-        
-        question = generate_question_with_ai(topic, relevant_chunks, client, api_key, model)
-        if question:
+    """Gera múltiplas questões usando três IAs especializadas"""
+    try:
+        questions = []
+        for i in range(num_questions):
+            # 1. Primeira IA: Gera o cenário e a pergunta
+            question_data = generate_question_with_ai(
+                topic=topic,
+                subtopic=subtopic,
+                client=client,
+                api_key=api_key,
+                model=model
+            )
+            if not question_data:
+                logger.error(f"Falha ao gerar cenário e pergunta {i+1}")
+                continue
+
+            # 2. Segunda IA: Gera a resposta correta com justificativa
+            answer_data = generate_answer_with_ai(
+                question_data=question_data,
+                topic=topic,
+                subtopic=subtopic,
+                client=client,
+                api_key=api_key,
+                model=model
+            )
+            if not answer_data:
+                logger.error(f"Falha ao gerar resposta e justificativa para questão {i+1}")
+                continue
+
+            # 3. Terceira IA: Gera os distratores
+            distractors = generate_distractors(
+                question_data=question_data,
+                answer_data=answer_data,
+                topic=topic,
+                subtopic=subtopic,
+                client=client,
+                api_key=api_key,
+                model=model
+            )
+            if not distractors:
+                logger.error(f"Falha ao gerar distratores para questão {i+1}")
+                continue
+
+            # Montar questão completa
+            question = {
+                "scenario": question_data["scenario"],
+                "question": question_data["question"],
+                "full_question": question_data["full_question"],
+                "options": {
+                    "A": distractors[0],
+                    "B": distractors[1],
+                    "C": distractors[2],
+                    "D": answer_data["correct_answer"]
+                },
+                "correct_answer": "D",
+                "justification": answer_data["justification"],
+                "pmbok_references": answer_data["pmbok_references"],
+                "practical_examples": answer_data["practical_examples"],
+                "topic": topic,
+                "subtopic": subtopic,
+                "relevant_chunks": {
+                    "question": question_data["relevant_chunks"],
+                    "answer": answer_data["relevant_chunks"]
+                }
+            }
             questions.append(question)
-    
-    return questions
+
+        return questions
+
+    except Exception as e:
+        logger.error(f"Erro ao gerar questões: {str(e)}")
+        return None
 
 def format_training_data(questions):
     """Formata as questões para treinamento"""
@@ -249,7 +309,8 @@ def generate_questions_with_specialized_models(
                 # Gerar resposta
                 answer, answer_prompt, answer_chunks = generate_answer_with_ai(
                     question['question'],
-                    None,
+                    subtopic,
+                    answer_chunks,
                     client,
                     api_key,
                     answer_model
@@ -261,13 +322,14 @@ def generate_questions_with_specialized_models(
                     question['answer_chunks'] = answer_chunks
                     
                     # Gerar distratores
-                    distractors, distractors_prompt, distractors_chunks = generate_distractors_with_ai(
-                        question['question'],
-                        answer,
-                        None,
-                        client,
-                        api_key,
-                        distractors_model
+                    distractors, distractors_prompt, distractors_chunks = generate_distractors(
+                        question_data=question,
+                        answer_data=answer,
+                        topic=topic,
+                        subtopic=subtopic,
+                        client=client,
+                        api_key=api_key,
+                        model=distractors_model
                     )
                     
                     if distractors:
@@ -276,6 +338,8 @@ def generate_questions_with_specialized_models(
                         question['distractors_chunks'] = distractors_chunks
                         question['question_prompt'] = question_prompt
                         question['question_chunks'] = question_chunks
+                        question['topic'] = topic
+                        question['subtopic'] = subtopic
                         questions.append(question)
     
     return questions
@@ -302,107 +366,281 @@ def generate_subtopics(topic: str, num_subtopics: int) -> List[str]:
         logger.error(f"Erro ao gerar subtópicos: {str(e)}")
         return [topic]
 
+def find_relevant_chunks(query: str, top_k: int = 3) -> List[Dict]:
+    """Encontra chunks relevantes no banco de dados baseado na similaridade semântica"""
+    try:
+        db = DatabaseManager()
+        chunks = db.get_all_chunks()
+        
+        if not chunks:
+            return []
+        
+        # Extrair textos para comparação
+        texts = [chunk['content'] for chunk in chunks]
+        texts.append(query)
+        
+        # Criar vetorizador TF-IDF
+        vectorizer = TfidfVectorizer()
+        tfidf_matrix = vectorizer.fit_transform(texts)
+        
+        # Calcular similaridade
+        query_vector = tfidf_matrix[-1]
+        similarities = cosine_similarity(query_vector, tfidf_matrix[:-1])[0]
+        
+        # Ordenar por similaridade
+        indices = np.argsort(similarities)[::-1][:top_k]
+        
+        return [chunks[i] for i in indices]
+    except Exception as e:
+        logger.error(f"Erro ao buscar chunks relevantes: {str(e)}")
+        return []
+
 def generate_question_with_ai(
     topic: str,
-    chunks: List[str],
+    subtopic: str,
     client: Any,
     api_key: str,
     model: str = None
-) -> Tuple[Dict[str, Any], str, List[str]]:
-    """Gera uma questão usando IA"""
+) -> Dict[str, str]:
+    """Gera apenas o cenário e a pergunta usando IA"""
     try:
-        # Gerar prompt
-        prompt = f"Gere uma questão de múltipla escolha sobre {topic} no estilo PMP."
-        if chunks:
-            prompt += f"\n\nContexto:\n{chr(10).join(chunks)}"
+        # Buscar chunks relevantes para o tópico
+        topic_query = f"{topic} {subtopic}"
+        relevant_chunks = find_relevant_chunks(topic_query)
         
-        # Fazer chamada à API
+        prompt = f"""Gere um cenário e uma pergunta sobre {topic} - {subtopic}.
+
+O cenário deve ser realista e contextualizado com a prática de gerenciamento de projetos.
+A pergunta deve ser clara e objetiva, sem incluir as alternativas.
+
+Contexto relevante do PMBOK:
+{chr(10).join([chunk['content'] for chunk in relevant_chunks])}
+
+Formato esperado:
+{{
+    "scenario": "Descrição do cenário",
+    "question": "Pergunta baseada no cenário"
+}}"""
+
         response = client.chat.completions.create(
-            model=model or "gpt-4",
+            model=model or "gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos e certificação PMP."},
+                {"role": "system", "content": "Você é um especialista em criar cenários e questões de gerenciamento de projetos."},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            temperature=0.7,
+            max_tokens=500
         )
+
+        # Extrair e validar resposta
+        response_text = response.choices[0].message.content.strip()
+        try:
+            question_data = json.loads(response_text)
+        except json.JSONDecodeError:
+            logger.error(f"Erro ao decodificar JSON da resposta: {response_text}")
+            return None
+
+        # Validar formato
+        if not isinstance(question_data, dict):
+            logger.error(f"Formato de resposta inválido: {question_data}")
+            return None
+
+        # Validar campos obrigatórios
+        required_fields = ["scenario", "question"]
+        if not all(field in question_data for field in required_fields):
+            logger.error(f"Campos obrigatórios ausentes: {question_data}")
+            return None
+
+        # Validar tipos dos campos
+        if not all(isinstance(question_data[field], str) for field in required_fields):
+            logger.error(f"Tipos de campos inválidos: {question_data}")
+            return None
+
+        # Combinar cenário e pergunta
+        question_data["full_question"] = f"{question_data['scenario']}\n\n{question_data['question']}"
+        question_data["relevant_chunks"] = relevant_chunks
         
-        # Processar resposta
-        question_text = response.choices[0].message.content.strip()
-        
-        return {
-            "question": question_text,
-            "topic": topic,
-            "subtopic": ""
-        }, prompt, chunks or []
-        
+        return question_data
+
     except Exception as e:
         logger.error(f"Erro ao gerar questão: {str(e)}")
-        return None, None, None
+        return None
 
 def generate_answer_with_ai(
-    question: str,
-    chunks: List[str],
+    question_data: Dict[str, str],
+    topic: str,
+    subtopic: str,
     client: Any,
     api_key: str,
     model: str = None
-) -> Tuple[str, str, List[str]]:
-    """Gera uma resposta para a questão usando IA"""
+) -> Dict[str, Any]:
+    """Gera a resposta correta com justificativa detalhada"""
     try:
-        # Gerar prompt
-        prompt = f"Gere uma resposta correta para a seguinte questão PMP:\n\n{question}"
-        if chunks:
-            prompt += f"\n\nContexto:\n{chr(10).join(chunks)}"
+        # Buscar chunks relevantes para a pergunta
+        question_query = f"{question_data['full_question']} {topic} {subtopic}"
+        relevant_chunks = find_relevant_chunks(question_query)
         
-        # Fazer chamada à API
+        prompt = f"""Analise o seguinte cenário e pergunta sobre {topic} - {subtopic}:
+
+{question_data['full_question']}
+
+Contexto relevante do PMBOK:
+{chr(10).join([chunk['content'] for chunk in relevant_chunks])}
+
+Gere uma resposta detalhada que inclua:
+1. A resposta correta
+2. Uma justificativa completa explicando por que esta é a resposta correta
+3. Referências específicas ao PMBOK e boas práticas de gerenciamento de projetos
+4. Exemplos práticos que ajudem a entender o conceito
+
+Formato esperado:
+{{
+    "correct_answer": "Texto da resposta correta",
+    "justification": "Explicação detalhada de por que esta é a resposta correta",
+    "pmbok_references": ["Referência 1", "Referência 2", ...],
+    "practical_examples": ["Exemplo 1", "Exemplo 2", ...]
+}}"""
+
         response = client.chat.completions.create(
             model=model or "gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos e certificação PMP."},
+                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos com profundo conhecimento do PMBOK e certificação PMP."},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            temperature=0.7,
+            max_tokens=1000
         )
-        
-        # Processar resposta
-        answer = response.choices[0].message.content.strip()
-        
-        return answer, prompt, chunks or []
-        
+
+        # Extrair e validar resposta
+        response_text = response.choices[0].message.content.strip()
+        try:
+            answer_data = json.loads(response_text)
+        except json.JSONDecodeError:
+            logger.error(f"Erro ao decodificar JSON da resposta: {response_text}")
+            return None
+
+        # Validar formato
+        if not isinstance(answer_data, dict):
+            logger.error(f"Formato de resposta inválido: {answer_data}")
+            return None
+
+        # Validar campos obrigatórios
+        required_fields = ["correct_answer", "justification", "pmbok_references", "practical_examples"]
+        if not all(field in answer_data for field in required_fields):
+            logger.error(f"Campos obrigatórios ausentes: {answer_data}")
+            return None
+
+        # Validar tipos dos campos
+        if not isinstance(answer_data["correct_answer"], str) or \
+           not isinstance(answer_data["justification"], str) or \
+           not isinstance(answer_data["pmbok_references"], list) or \
+           not isinstance(answer_data["practical_examples"], list):
+            logger.error(f"Tipos de campos inválidos: {answer_data}")
+            return None
+
+        answer_data["relevant_chunks"] = relevant_chunks
+        return answer_data
+
     except Exception as e:
         logger.error(f"Erro ao gerar resposta: {str(e)}")
-        return None, None, None
+        return None
 
-def generate_distractors_with_ai(
-    question: str,
-    correct_answer: str,
-    chunks: List[str],
+def generate_distractors(
+    question_data: Dict[str, str],
+    answer_data: Dict[str, Any],
+    topic: str,
+    subtopic: str,
     client: Any,
     api_key: str,
     model: str = None
-) -> Tuple[List[str], str, List[str]]:
-    """Gera distratores para a questão usando IA"""
+) -> List[str]:
+    """Gera distratores baseados na pergunta e resposta correta"""
     try:
-        # Gerar prompt
-        prompt = f"Gere 3 alternativas incorretas (distratores) para a seguinte questão PMP:\n\n{question}\n\nResposta correta: {correct_answer}"
-        if chunks:
-            prompt += f"\n\nContexto:\n{chr(10).join(chunks)}"
+        # Buscar chunks relevantes para a resposta
+        answer_query = f"{answer_data['correct_answer']} {answer_data['justification']} {topic} {subtopic}"
+        relevant_chunks = find_relevant_chunks(answer_query)
         
-        # Fazer chamada à API
+        # Calcular o tamanho da resposta correta e a diferença permitida
+        correct_answer_length = len(answer_data['correct_answer'].split())
+        allowed_difference = max(3, int(correct_answer_length * 0.3))  # Maior entre 3 palavras ou 30%
+        min_length = correct_answer_length - allowed_difference
+        max_length = correct_answer_length + allowed_difference
+        
+        prompt = f"""Analise o seguinte cenário, pergunta e resposta correta sobre {topic} - {subtopic}:
+
+Cenário e Pergunta:
+{question_data['full_question']}
+
+Resposta Correta:
+{answer_data['correct_answer']}
+
+Justificativa da Resposta:
+{answer_data['justification']}
+
+Contexto relevante do PMBOK:
+{chr(10).join([chunk['content'] for chunk in relevant_chunks])}
+
+Gere 3 alternativas incorretas (distratores) que devem:
+1. Ser plausíveis e relacionadas ao contexto
+2. Parecer corretas à primeira vista
+3. Ter o mesmo nível de complexidade da resposta correta
+4. Ser diferentes entre si
+5. Não serem obviamente incorretas
+6. Ter entre {min_length} e {max_length} palavras (a resposta correta tem {correct_answer_length} palavras, permitindo uma diferença de {allowed_difference} palavras)
+
+Formato esperado:
+[
+    "Primeira alternativa incorreta",
+    "Segunda alternativa incorreta",
+    "Terceira alternativa incorreta"
+]"""
+
         response = client.chat.completions.create(
             model=model or "gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos e certificação PMP."},
+                {"role": "system", "content": "Você é um especialista em criar alternativas plausíveis para questões de gerenciamento de projetos."},
                 {"role": "user", "content": prompt}
-            ]
+            ],
+            temperature=0.7,
+            max_tokens=500
         )
-        
-        # Processar resposta
-        distractors_text = response.choices[0].message.content.strip()
-        distractors = [d.strip() for d in distractors_text.split('\n') if d.strip()]
-        
-        return distractors, prompt, chunks or []
-        
+
+        # Extrair e validar resposta
+        response_text = response.choices[0].message.content.strip()
+        try:
+            distractors = json.loads(response_text)
+        except json.JSONDecodeError:
+            logger.error(f"Erro ao decodificar JSON da resposta: {response_text}")
+            return None
+
+        # Validar formato
+        if not isinstance(distractors, list) or len(distractors) != 3:
+            logger.error(f"Formato de resposta inválido: {distractors}")
+            return None
+
+        # Validar tipos dos campos
+        if not all(isinstance(d, str) for d in distractors):
+            logger.error(f"Tipos de campos inválidos: {distractors}")
+            return None
+
+        # Validar que os distratores são diferentes entre si e da resposta correta
+        all_options = distractors + [answer_data['correct_answer']]
+        if len(set(all_options)) != 4:
+            logger.error(f"Distratores duplicados ou iguais à resposta correta: {distractors}")
+            return None
+
+        # Validar tamanho dos distratores
+        for distractor in distractors:
+            distractor_length = len(distractor.split())
+            if distractor_length < min_length or distractor_length > max_length:
+                logger.error(f"Distrator com tamanho fora do intervalo permitido ({min_length}-{max_length} palavras): {distractor}")
+                return None
+
+        return distractors
+
     except Exception as e:
         logger.error(f"Erro ao gerar distratores: {str(e)}")
-        return None, None, None
+        return None
 
 def generate_wrong_answers_with_ai(question: str, correct_answer: str, context: str, client: OpenAI, api_key: str, model: str = None) -> Optional[List[str]]:
     """Gera respostas incorretas usando IA"""

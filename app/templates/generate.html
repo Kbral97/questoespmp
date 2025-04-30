@@ -229,7 +229,7 @@
         <div class="mdc-dialog__surface">
             <h2 class="mdc-dialog__title">Gerando Questões</h2>
             <div class="mdc-dialog__content">
-                <div class="mdc-linear-progress mdc-linear-progress--indeterminate">
+                <div class="mdc-linear-progress mdc-linear-progress--indeterminate" id="progressBar">
                     <div class="mdc-linear-progress__buffer">
                         <div class="mdc-linear-progress__buffer-bar"></div>
                         <div class="mdc-linear-progress__buffer-dots"></div>
@@ -241,7 +241,21 @@
                         <span class="mdc-linear-progress__bar-inner"></span>
                     </div>
                 </div>
-                <p id="progressMessage">Preparando para gerar questões...</p>
+                <p id="progressMessage" class="mdc-typography--body1" style="margin-top: 16px; text-align: center;">Preparando para gerar questões...</p>
+                <div id="progressSteps" class="mdc-typography--body2" style="margin-top: 8px;">
+                    <div class="progress-step" style="display: flex; align-items: center; margin: 4px 0;">
+                        <i class="material-icons" style="margin-right: 8px;">pending</i>
+                        <span>Validando parâmetros</span>
+                    </div>
+                    <div class="progress-step" style="display: flex; align-items: center; margin: 4px 0;">
+                        <i class="material-icons" style="margin-right: 8px;">pending</i>
+                        <span>Gerando questões</span>
+                    </div>
+                    <div class="progress-step" style="display: flex; align-items: center; margin: 4px 0;">
+                        <i class="material-icons" style="margin-right: 8px;">pending</i>
+                        <span>Processando resultados</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -255,6 +269,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // Inicializar componentes MDC
     const textFields = document.querySelectorAll('.mdc-text-field');
     textFields.forEach(textField => mdc.textField.MDCTextField.attachTo(textField));
+
+    // Log para verificar se o MDC Dialog está disponível
+    console.log('MDC Dialog disponível:', typeof mdc.dialog !== 'undefined');
+    
+    // Verificar se o elemento do diálogo existe
+    const progressDialogElement = document.getElementById('progressDialog');
+    console.log('Elemento do diálogo encontrado:', progressDialogElement !== null);
+    
+    // Tentar inicializar o diálogo antecipadamente
+    try {
+        window.progressDialog = new mdc.dialog.MDCDialog(progressDialogElement);
+        console.log('Diálogo inicializado com sucesso');
+    } catch (error) {
+        console.error('Erro ao inicializar diálogo:', error);
+    }
 
     // Inicializar select com referência global
     const topicSelect = document.querySelector('.mdc-select');
@@ -302,17 +331,39 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Mostrar diálogo de progresso
-        const progressDialog = new mdc.dialog.MDCDialog(document.getElementById('progressDialog'));
-        progressDialog.open();
+        // Verificar se o diálogo está disponível
+        if (!window.progressDialog) {
+            console.error('Diálogo não inicializado');
+            try {
+                window.progressDialog = new mdc.dialog.MDCDialog(document.getElementById('progressDialog'));
+                console.log('Diálogo inicializado no submit');
+            } catch (error) {
+                console.error('Erro ao inicializar diálogo no submit:', error);
+                alert('Erro interno: não foi possível mostrar o diálogo de progresso');
+                return;
+            }
+        }
+        
+        try {
+            window.progressDialog.open();
+            updateProgress(0, 'Validando parâmetros...');
+            console.log('Diálogo aberto com sucesso');
+        } catch (error) {
+            console.error('Erro ao abrir diálogo:', error);
+            alert('Erro interno: não foi possível mostrar o diálogo de progresso');
+            return;
+        }
         
         // Enviar requisição para gerar questões
         const csrfMeta = document.querySelector('meta[name="csrf-token"]');
         if (!csrfMeta) {
             alert('Erro interno: CSRF token não encontrado no template.');
-            progressDialog.close();
+            safeCloseDialog();
             return;
         }
+        
+        updateProgress(1, 'Gerando questões...');
+        
         const csrfToken = csrfMeta.getAttribute('content');
         fetch('/api/generate', {
             method: 'POST',
@@ -329,7 +380,6 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => {
             if (!response.ok) {
                 if (response.status === 401) {
-                    // Redirecionar para a página de login
                     window.location.href = '/login';
                     throw new Error('Sessão expirada. Por favor, faça login novamente.');
                 }
@@ -337,6 +387,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     throw new Error(data.error || 'Erro ao gerar questões');
                 });
             }
+            updateProgress(2, 'Processando resultados...');
             return response.json();
         })
         .then(data => {
@@ -349,10 +400,23 @@ document.addEventListener('DOMContentLoaded', function() {
             questionsContainer.innerHTML = '';
             
             data.questions.forEach((question, index) => {
+                console.log('Processando questão:', index, question);
+                
                 const questionCard = document.createElement('div');
                 questionCard.className = 'mdc-card question-card';
                 questionCard.style.marginBottom = '1rem';
                 questionCard.style.padding = '1rem';
+                
+                // Verificar se os campos existem
+                const hasQuestionDetails = question.question_prompt || question.question_chunks;
+                const hasAnswerDetails = question.answer_prompt || question.answer_chunks;
+                const hasDistractorsDetails = question.distractors_prompt || question.distractors_chunks;
+                
+                console.log('Detalhes disponíveis:', {
+                    question: hasQuestionDetails,
+                    answer: hasAnswerDetails,
+                    distractors: hasDistractorsDetails
+                });
                 
                 const questionContent = `
                     <div class="question-header">
@@ -435,15 +499,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 questionsContainer.appendChild(questionCard);
             });
             
-            // Esconder diálogo de progresso e mostrar resultados
-            progressDialog.close();
+            safeCloseDialog();
             document.getElementById('resultsSection').style.display = 'block';
-            
-            // Rolar para os resultados
             document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
         })
         .catch(error => {
-            progressDialog.close();
+            safeCloseDialog();
             alert('Erro ao gerar questões: ' + error.message);
         });
     });
@@ -465,18 +526,96 @@ function toggleAnswer(index) {
 
 // Adicionar função para alternar a visibilidade dos detalhes
 function toggleQuestionDetails(index) {
-    const detailsElement = document.getElementById(`questionDetails${index}`);
-    const button = detailsElement.previousElementSibling.querySelector('button');
-    const icon = button.querySelector('i');
+    console.log('Tentando alternar detalhes para questão:', index);
     
+    const detailsElement = document.getElementById(`questionDetails${index}`);
+    if (!detailsElement) {
+        console.error('Elemento de detalhes não encontrado:', `questionDetails${index}`);
+        return;
+    }
+    
+    // Encontrar o botão de forma mais segura
+    const questionCard = detailsElement.closest('.question-card');
+    if (!questionCard) {
+        console.error('Card da questão não encontrado');
+        return;
+    }
+    
+    const button = questionCard.querySelector('.question-header .mdc-button--icon');
+    if (!button) {
+        console.error('Botão não encontrado no card');
+        return;
+    }
+    
+    const icon = button.querySelector('i');
+    if (!icon) {
+        console.error('Ícone não encontrado no botão');
+        return;
+    }
+    
+    // Alternar visibilidade
     if (detailsElement.style.display === 'none') {
         detailsElement.style.display = 'block';
         icon.textContent = 'remove';
+        console.log('Detalhes exibidos para questão:', index);
     } else {
         detailsElement.style.display = 'none';
         icon.textContent = 'add';
+        console.log('Detalhes ocultados para questão:', index);
     }
 }
+
+// Função para atualizar o estado do progresso
+function updateProgress(step, message) {
+    const progressMessage = document.getElementById('progressMessage');
+    const progressSteps = document.getElementById('progressSteps').getElementsByClassName('progress-step');
+    
+    if (progressMessage && progressSteps) {
+        progressMessage.textContent = message;
+        
+        // Atualizar ícones dos passos
+        for (let i = 0; i < progressSteps.length; i++) {
+            const icon = progressSteps[i].querySelector('.material-icons');
+            if (i < step) {
+                icon.textContent = 'check_circle';
+                icon.style.color = '#4CAF50';
+            } else if (i === step) {
+                icon.textContent = 'autorenew';
+                icon.style.color = '#2196F3';
+                icon.classList.add('rotating');
+            } else {
+                icon.textContent = 'pending';
+                icon.style.color = '';
+                icon.classList.remove('rotating');
+            }
+        }
+    }
+}
+
+// Função segura para fechar o diálogo
+function safeCloseDialog() {
+    if (window.progressDialog && window.progressDialog.isOpen) {
+        try {
+            window.progressDialog.close();
+            console.log('Diálogo fechado com sucesso');
+        } catch (error) {
+            console.error('Erro ao fechar diálogo:', error);
+        }
+    }
+}
+
+// Adicionar estilo para o ícone rotativo
+const style = document.createElement('style');
+style.textContent = `
+    .rotating {
+        animation: rotate 2s linear infinite;
+    }
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+`;
+document.head.appendChild(style);
 </script>
 
 <style>
