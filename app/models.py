@@ -47,4 +47,16 @@ class TextChunk(db.Model):
     processed_text = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    user = db.relationship('User', backref=db.backref('text_chunks', lazy=True)) 
+    user = db.relationship('User', backref=db.backref('text_chunks', lazy=True))
+
+class Domain(db.Model):
+    __tablename__ = 'domains'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+    description = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<Domain {self.name}>' 

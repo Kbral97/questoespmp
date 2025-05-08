@@ -1,0 +1,33 @@
+.chunks-container {
+    max-height: 300px;
+    overflow-y: auto;
+    margin: 10px 0;
+}
+
+.chunk-item {
+    margin-bottom: 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+}
+
+.chunk-item pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.card-body h6 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    color: #495057;
+}
+
+.card-body pre {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+} 

@@ -97,17 +97,40 @@ document.addEventListener('change', function(e) {
 
 // Função para buscar documentos do backend
 async function fetchDocumentList() {
-  try {
-    const resp = await fetch('/api/list-documents');
-    if (!resp.ok) throw new Error('Erro ao buscar documentos');
-    const data = await resp.json();
-    documentos = data.documents;
-    renderDocumentList();
-  } catch (err) {
-    console.error('Erro ao buscar lista de documentos:', err);
-    documentos = [];
-    renderDocumentList();
-  }
+    try {
+        const resp = await fetch('/api/list-documents');
+        if (!resp.ok) throw new Error('Erro ao buscar documentos');
+        const data = await resp.json();
+        documentos = data.documents;
+        
+        // Atualizar a lista de documentos
+        renderDocumentList();
+        
+        // Se houver resultados de processamento, atualizar também
+        const processResultsDiv = document.getElementById('processResults');
+        if (processResultsDiv && processResultsDiv.innerHTML) {
+            // Atualizar o status dos tópicos processados
+            const topicCards = document.querySelectorAll('.topic-card');
+            topicCards.forEach(card => {
+                const topicNumber = card.querySelector('h4').textContent.split(' ')[1];
+                const documentTitle = document.querySelector('.card-header h5').textContent.split(' - ')[1];
+                
+                // Verificar se o documento está processado
+                const doc = documentos.find(d => d.name === documentTitle);
+                if (doc && doc.processed) {
+                    // Adicionar indicador visual de processado
+                    const statusBadge = document.createElement('span');
+                    statusBadge.className = 'badge badge-success ml-2';
+                    statusBadge.textContent = 'Processado';
+                    card.querySelector('h4').appendChild(statusBadge);
+                }
+            });
+        }
+    } catch (err) {
+        console.error('Erro ao buscar lista de documentos:', err);
+        documentos = [];
+        renderDocumentList();
+    }
 }
 
 // Função utilitária para obter o CSRF token
@@ -175,204 +198,305 @@ document.getElementById('removeSelectedBtn').addEventListener('click', async fun
   await fetchDocumentList();
 });
 
-function renderExtractedTopics() {
-  const processResultsDiv = document.getElementById('processResults');
-  // Adicionar container da barra de progresso
-  let progressBarHtml = '';
-  if (extractedTopics.length) {
-    progressBarHtml = `
-      <div id="progressBarContainer" style="margin-bottom:1em;">
-        <div id="progressBarText" style="margin-bottom:4px; font-size:0.95em; color:#1565c0;"></div>
-        <div style="background:#e0e0e0; border-radius:8px; height:18px; width:100%;">
-          <div id="progressBar" style="background:#1976d2; height:100%; width:0%; border-radius:8px; transition:width 0.3s;"></div>
+function renderExtractedTopics(topics, documentTitle) {
+    const processResultsDiv = document.getElementById('processResults');
+    processResultsDiv.innerHTML = `
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Tópicos Extraídos - ${documentTitle}</h5>
+                <div class="mt-2">
+                    <button class="mdc-button mdc-button--raised" onclick="processSelectedTopics()">
+                        <span class="mdc-button__ripple"></span>
+                        <span class="mdc-button__label">Processar Tópicos Selecionados</span>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="topics-container">
+                    ${topics.map((topic, index) => `
+                        <div class="topic-card mb-4">
+                            <div class="card">
+                                <div class="card-header d-flex justify-content-between align-items-center" 
+                                     style="background-color: #f8f9fa; border-bottom: 2px solid #e9ecef;">
+                                    <h4 class="mb-0" style="color: #2c3e50; font-weight: 600;">Tópico ${topic.topic}</h4>
+                                    <div class="form-check">
+                                        <input class="form-check-input topic-checkbox" type="checkbox" 
+                                               value="${topic.topic}" id="topic-${index}" checked>
+                                        <label class="form-check-label" for="topic-${index}">
+                                            Selecionar
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="card-body" style="padding: 1.5rem;">
+                                    <div class="form-group">
+                                        <textarea class="form-control topic-text auto-resize" 
+                                                  id="topic-text-${index}" 
+                                                  style="width: 100%; 
+                                                         font-size: 16px; 
+                                                         line-height: 1.6; 
+                                                         word-spacing: -0.5px;
+                                                         white-space: pre-wrap;
+                                                         border: 1px solid #e9ecef;
+                                                         border-radius: 8px;
+                                                         padding: 1rem;
+                                                         background-color: #ffffff;
+                                                         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+                                                         transition: all 0.3s ease;
+                                                         overflow: hidden;
+                                                         resize: none;
+                                                         min-height: 100px;
+                                                         font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;">${topic.text.replace(/\n/g, ' ')}</textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
         </div>
-      </div>
     `;
-  }
-  if (!extractedTopics.length) {
-    processResultsDiv.innerHTML = '<div style="color:#b71c1c;"><b>Nenhum tópico encontrado no documento.</b></div>';
-    return;
-  }
-  let html = progressBarHtml + '<h4>Tópicos extraídos do documento:</h4>';
-  extractedTopics.forEach((topic, idx) => {
-    html += `<div style='margin:1.5em 0; padding:1em; border:1px solid #ccc; border-radius:8px; background:#fafafa; position:relative;'>`;
-    html += `<div style='font-weight:bold; color:#1565c0;'>Tópico ${topic.topic}</div>`;
-    html += `<div style='margin-top:0.5em;'><b>Texto original:</b><br><div style='white-space:normal; background:#f5f5f5; padding:0.5em; border-radius:4px;'>${topic.text}</div></div>`;
-    if (topic.ia_text) {
-      html += `<div style='margin-top:0.5em;'><b>Resposta da IA:</b><br><div style='white-space:pre-wrap; background:#e3f2fd; padding:0.5em; border-radius:4px;'>${topic.ia_text}</div></div>`;
-    }
-    html += `<button class='remove-topic-btn' data-idx='${idx}' style='position:absolute; top:8px; right:8px; background:#b71c1c; color:#fff; border:none; border-radius:4px; padding:2px 8px; cursor:pointer;'>Remover</button>`;
-    html += `</div>`;
-  });
-  html += `<div style='margin-top:2em; text-align:center;'><button id='nextTopicBtn' class='mdc-button mdc-button--raised' style='font-weight:bold;'>Processar Todos</button></div>`;
-  processResultsDiv.innerHTML = html;
 
-  // Adicionar listeners para remover tópicos
-  document.querySelectorAll('.remove-topic-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const idx = parseInt(this.getAttribute('data-idx'));
-      extractedTopics.splice(idx, 1);
-      renderExtractedTopics();
-    });
-  });
-  // Listener para botão Processar Todos
-  document.getElementById('nextTopicBtn').addEventListener('click', async function() {
-    if (extractedTopics.length === 0) return;
-    this.disabled = true;
-    this.textContent = 'Processando...';
-    let processedCount = 0;
-    const total = extractedTopics.length;
-    function updateProgressBar() {
-      const percent = Math.round((processedCount / total) * 100);
-      const bar = document.getElementById('progressBar');
-      const text = document.getElementById('progressBarText');
-      if (bar) bar.style.width = percent + '%';
-      if (text) text.textContent = `Processados: ${processedCount} de ${total} (${percent}%)`;
-      // Log para depuração
-      console.log(`[Progresso] ${processedCount}/${total} tópicos processados (${percent}%)`);
+    // Função para ajustar a altura do textarea
+    function adjustTextareaHeight(textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = (textarea.scrollHeight) + 'px';
     }
-    updateProgressBar();
-    for (let i = 0; i < extractedTopics.length; i++) {
-      const topic = extractedTopics[i];
-      if (topic.ia_text) {
-        processedCount++;
-        updateProgressBar();
-        continue; // Pular se já processado
-      }
-      try {
-        const csrfToken = getCsrfToken();
-        const resp = await fetch('/api/process-topic', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-          },
-          body: JSON.stringify({
-            document_title: topic.doc_name || documentos.find(d => d.name === documentInput.files[0]?.name)?.name || '',
-            topic: topic.topic,
-            text: topic.text
-          })
-        });
-        if (!resp.ok) {
-          const errData = await resp.json();
-          alert('Erro ao processar tópico: ' + (errData.error || resp.status));
-          continue;
-        }
-        const data = await resp.json();
-        topic.ia_text = data.ia_text;
-        processedCount++;
-        renderExtractedTopics(); // Atualiza a tela e barra
-        // Após re-render, reatualizar barra (pois re-render zera listeners e barra)
-        setTimeout(updateProgressBar, 100);
-      } catch (err) {
-        alert('Erro ao processar tópico.');
-      }
-    }
-    this.disabled = false;
-    this.textContent = 'Processar Todos';
-    updateProgressBar();
 
-    // Após processar todos, deletar chunks antigos e salvar novos no banco
-    const chunksArray = extractedTopics.map(t => {
-      let chunk = `Tópico: ${t.topic}\nTexto original: ${t.text}`;
-      if (t.ia_text) chunk += `\nResposta da IA: ${t.ia_text}`;
-      return { topic: t.topic, chunk_text: chunk };
-    });
-    const docName = extractedTopics[0]?.doc_name || '';
-    if (docName && chunksArray.length > 0) {
-      const csrfToken = getCsrfToken();
-      console.log('[Chunks] Solicitando exclusão dos chunks antigos:', {document: docName});
-      try {
-        fetch('/api/delete-chunks', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': csrfToken
-          },
-          body: JSON.stringify({ document: docName })
-        }).then(async resp => {
-          if (!resp.ok) {
-            const errData = await resp.json();
-            alert('Erro ao apagar chunks antigos: ' + (errData.error || resp.status));
-            console.error('[Chunks] Erro ao apagar antigos:', errData);
-            return;
-          }
-          console.log('[Chunks] Chunks antigos apagados com sucesso!');
-          // Agora salvar os novos chunks (um por tópico)
-          fetch('/api/save-chunks', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify({
-              document: docName,
-              chunks: chunksArray
-            })
-          }).then(async resp2 => {
-            if (!resp2.ok) {
-              const errData2 = await resp2.json();
-              alert('Erro ao salvar chunks: ' + (errData2.error || resp2.status));
-              console.error('[Chunks] Erro ao salvar:', errData2);
-              return;
-            }
-            console.log('[Chunks] Chunks salvos com sucesso!');
-          }).catch(err2 => {
-            alert('Erro ao salvar chunks.');
-            console.error('[Chunks] Erro ao salvar:', err2);
-          });
-        }).catch(err => {
-          alert('Erro ao apagar chunks antigos.');
-          console.error('[Chunks] Erro ao apagar antigos:', err);
+    // Ajustar altura inicial de todos os textareas
+    document.querySelectorAll('.auto-resize').forEach(textarea => {
+        adjustTextareaHeight(textarea);
+        
+        // Ajustar altura quando o conteúdo mudar
+        textarea.addEventListener('input', function() {
+            adjustTextareaHeight(this);
         });
-      } catch (err) {
-        alert('Erro ao apagar chunks antigos.');
-        console.error('[Chunks] Erro ao apagar antigos:', err);
-      }
-    } else {
-      console.warn('[Chunks] Não há doc_name ou chunks para salvar.');
-    }
-  });
+
+        // Efeitos de foco
+        textarea.addEventListener('focus', function() {
+            this.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+            this.style.borderColor = '#80bdff';
+        });
+        
+        textarea.addEventListener('blur', function() {
+            this.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
+            this.style.borderColor = '#e9ecef';
+        });
+    });
 }
 
-document.getElementById('processSelectedBtn').addEventListener('click', async function() {
-  const checkboxes = document.querySelectorAll('.doc-checkbox');
-  const selected = [];
-  checkboxes.forEach((cb, idx) => { if (cb.checked) selected.push(documentos[idx]); });
-  if (selected.length === 0) return;
-  const csrfToken = getCsrfToken();
-  const processResultsDiv = document.getElementById('processResults');
-  processResultsDiv.innerHTML = '';
-  console.log('[Processamento] Documentos selecionados:', selected.map(d => d.name));
-
-  // Extrair e exibir tópicos do primeiro documento selecionado
-  try {
-    const resp = await fetch('/api/extract-topics', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': csrfToken
-      },
-      body: JSON.stringify({ document: selected[0].name })
+async function processSelectedTopics() {
+    const selectedTopics = [];
+    document.querySelectorAll('.topic-checkbox:checked').forEach(checkbox => {
+        const topicIndex = checkbox.id.split('-')[1];
+        const topicText = document.getElementById(`topic-text-${topicIndex}`).value;
+        selectedTopics.push({
+            topic: checkbox.value,
+            text: topicText,
+            index: topicIndex
+        });
     });
-    if (!resp.ok) {
-      const errData = await resp.json();
-      processResultsDiv.innerHTML = `<div style='color:#b71c1c;'><b>Erro ao extrair tópicos:</b> ${errData.error || resp.status}</div>`;
-      return;
+
+    if (selectedTopics.length === 0) {
+        alert('Selecione pelo menos um tópico para processar');
+        return;
     }
-    const data = await resp.json();
-    if (data.topics && Array.isArray(data.topics) && data.topics.length > 0) {
-      extractedTopics = data.topics.map(t => ({...t, ia_text: '', doc_name: selected[0].name}));
-      currentTopicIndex = 0;
-      renderExtractedTopics();
-    } else {
-      processResultsDiv.innerHTML = '<div style="color:#b71c1c;"><b>Nenhum tópico encontrado no documento.</b></div>';
+
+    const documentTitle = document.querySelector('.card-header h5').textContent.split(' - ')[1];
+
+    for (const topic of selectedTopics) {
+        try {
+            // Encontrar o card do tópico atual
+            const topicCards = document.querySelectorAll('.topic-card');
+            const topicCard = topicCards[parseInt(topic.index)];
+            
+            if (!topicCard) {
+                console.error(`Card não encontrado para o tópico ${topic.topic} (índice ${topic.index})`);
+                continue;
+            }
+
+            // Criar elemento de loading
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'alert alert-info';
+            loadingDiv.textContent = `Processando tópico ${topic.topic}...`;
+            topicCard.appendChild(loadingDiv);
+
+            const response = await fetch('/api/process-topic', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCsrfToken()
+                },
+                body: JSON.stringify({
+                    document_title: documentTitle,
+                    topic: topic.topic,
+                    topic_text: topic.text
+                })
+            });
+
+            const result = await response.json();
+            console.log('Resposta da API:', result); // Debug
+
+            // Remover o loading
+            loadingDiv.remove();
+
+            if (result.success) {
+                // Criar o card de resposta
+                const responseCard = document.createElement('div');
+                responseCard.className = 'card mb-3';
+                
+                // Garantir que todos os campos existam
+                const keyPoints = result.key_points || [];
+                const practicalExamples = result.practical_examples || [];
+                const pmbokReferences = result.pmbok_references || [];
+                const domains = result.domains || [];
+                
+                responseCard.innerHTML = `
+                    <div class="card-header">
+                        <h6 class="mb-0">Resumo do Tópico ${topic.topic}</h6>
+                    </div>
+                    <div class="card-body">
+                        <h6>Resumo:</h6>
+                        <p>${result.summary || 'Nenhum resumo disponível'}</p>
+                        
+                        <h6>Pontos-Chave:</h6>
+                        <ul>
+                            ${keyPoints.map(point => `
+                                <li><strong>${point.concept || ''}:</strong> ${point.definition || ''}</li>
+                            `).join('')}
+                        </ul>
+                        
+                        <h6>Exemplos Práticos:</h6>
+                        <ul>
+                            ${practicalExamples.map(example => `
+                                <li>${example || ''}</li>
+                            `).join('')}
+                        </ul>
+                        
+                        <h6>Referências PMBOK:</h6>
+                        <ul>
+                            ${pmbokReferences.map(ref => `
+                                <li>${ref || ''}</li>
+                            `).join('')}
+                        </ul>
+                        
+                        <h6>Domínios Relacionados:</h6>
+                        <ul>
+                            ${domains.map(domain => `
+                                <li>${domain || ''}</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                `;
+                
+                // Inserir após o card do tópico
+                topicCard.parentNode.insertBefore(responseCard, topicCard.nextSibling);
+
+                // Atualizar a lista de documentos para refletir o novo status
+                await fetchDocumentList();
+            } else {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'alert alert-danger';
+                errorDiv.textContent = `Erro ao processar tópico ${topic.topic}: ${result.message || 'Erro desconhecido'}`;
+                topicCard.parentNode.insertBefore(errorDiv, topicCard.nextSibling);
+            }
+        } catch (error) {
+            console.error('Erro ao processar tópico:', error);
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger';
+            errorDiv.textContent = `Erro ao processar tópico ${topic.topic}: ${error.message}`;
+            if (topicCard) {
+                topicCard.parentNode.insertBefore(errorDiv, topicCard.nextSibling);
+            } else {
+                document.getElementById('processResults').appendChild(errorDiv);
+            }
+        }
     }
-  } catch (err) {
-    processResultsDiv.innerHTML = `<div style='color:#b71c1c;'><b>Erro ao extrair tópicos.</b></div>`;
-    console.error('[Processamento] Erro ao extrair tópicos:', err);
-  }
-});
+}
+
+// Função para carregar os domínios
+async function loadDomains() {
+    try {
+        const response = await fetch('/api/domains');
+        const data = await response.json();
+        if (data.success) {
+            return data.domains;
+        }
+        return [];
+    } catch (error) {
+        console.error('Erro ao carregar domínios:', error);
+        return [];
+    }
+}
+
+// Função para renderizar os checkboxes de domínios
+async function renderDomainCheckboxes(topicId) {
+    const domains = await loadDomains();
+    const container = document.getElementById(`domain-checkboxes-${topicId}`);
+    if (!container) return;
+    
+    container.innerHTML = domains.map(domain => `
+        <div class="form-check">
+            <input class="form-check-input domain-checkbox" type="checkbox" 
+                   value="${domain.id}" id="domain-${topicId}-${domain.id}">
+            <label class="form-check-label" for="domain-${topicId}-${domain.id}">
+                ${domain.name}
+            </label>
+        </div>
+    `).join('');
+}
+
+// Função para gerar questões
+async function generateQuestions(topicId) {
+    const selectedDomains = Array.from(
+        document.querySelectorAll(`#domain-checkboxes-${topicId} .domain-checkbox:checked`)
+    ).map(cb => parseInt(cb.value));
+    
+    if (selectedDomains.length === 0) {
+        alert('Selecione pelo menos um domínio para gerar questões');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/generate-questions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({
+                summary_id: topicId,
+                domains: selectedDomains
+            })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            // Exibir as questões geradas
+            const questionsContainer = document.createElement('div');
+            questionsContainer.className = 'questions-container mt-3';
+            questionsContainer.innerHTML = `
+                <h6>Questões Geradas:</h6>
+                <div class="list-group">
+                    ${result.questions.map((q, idx) => `
+                        <div class="list-group-item">
+                            <h6>Questão ${idx + 1}</h6>
+                            <p>${q.question}</p>
+                            <p><strong>Resposta:</strong> ${q.answer}</p>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            
+            const topicCard = document.querySelector(`#topic-${topicId}`);
+            topicCard.appendChild(questionsContainer);
+        } else {
+            alert('Erro ao gerar questões: ' + result.error);
+        }
+    } catch (error) {
+        console.error('Erro ao gerar questões:', error);
+        alert('Erro ao gerar questões. Por favor, tente novamente.');
+    }
+}
 
 // Inicializar lista ao carregar a página
 fetchDocumentList();
@@ -404,6 +528,61 @@ document.addEventListener('drop', function(e) {
     console.log('Arquivo(s) solto(s) na página:', e.dataTransfer.files);
     handleDropUpload(e.dataTransfer.files);
   }
+});
+
+document.getElementById('processSelectedBtn').addEventListener('click', async function() {
+    const checkboxes = document.querySelectorAll('.doc-checkbox:checked');
+    if (checkboxes.length === 0) {
+        alert('Selecione pelo menos um documento para processar');
+        return;
+    }
+
+    const selectedDocs = Array.from(checkboxes).map(cb => {
+        const idx = parseInt(cb.dataset.idx);
+        return documentos[idx].name;
+    });
+
+    const processResultsDiv = document.getElementById('processResults');
+    processResultsDiv.innerHTML = '<div class="alert alert-info">Processando documentos...</div>';
+
+    try {
+        const response = await fetch('/api/process-documents', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify({ documents: selectedDocs })
+        });
+
+        const data = await response.json();
+        
+        if (!data.success) {
+            processResultsDiv.innerHTML = `<div class="alert alert-danger">Erro: ${data.error}</div>`;
+            return;
+        }
+
+        // Processar os resultados
+        let allTopics = [];
+        data.results.forEach(result => {
+            if (result.status === 'Extraído' && result.topics) {
+                allTopics = allTopics.concat(result.topics.map(topic => ({
+                    ...topic,
+                    doc_name: result.name
+                })));
+            }
+        });
+
+        if (allTopics.length > 0) {
+            renderExtractedTopics(allTopics, selectedDocs[0]);
+        } else {
+            processResultsDiv.innerHTML = '<div class="alert alert-warning">Nenhum tópico encontrado nos documentos.</div>';
+        }
+
+    } catch (error) {
+        console.error('Erro ao processar documentos:', error);
+        processResultsDiv.innerHTML = `<div class="alert alert-danger">Erro ao processar documentos: ${error.message}</div>`;
+    }
 });
 </script>
 {% endblock %} 

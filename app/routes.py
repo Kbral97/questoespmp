@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, jsonify, redirect, url_fo
 from flask_login import login_required, current_user, login_user, logout_user
 from urllib.parse import urlparse
 from app import db
-from app.models import User, Question, Statistics, TextChunk
+from app.models import User, Question, Statistics, TextChunk, Domain
 from app.forms import LoginForm, ChangePasswordForm, ChangeApiKeyForm
 import json
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -16,13 +16,11 @@ import logging
 import PyPDF2
 import tempfile
 from werkzeug.utils import secure_filename
+from openai import OpenAI
 
 # Importar usando caminho relativo
-# from .openai_client import generate_questions, generate_questions_with_specialized_models, show_ia_response_with_topics
-from app.api.openai_client import generate_questions, generate_questions_with_specialized_models
+from app.api.openai_client import generate_questions, get_openai_client, generate_topic_summary
 from .database.db_manager import DatabaseManager
-from app.api.openai_client import get_openai_client
-from app.openai_client import build_chunk_prompt
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -78,15 +76,22 @@ def logout():
 @main.route('/api/questions', methods=['GET'])
 @login_required
 def get_questions():
-    questions = Question.query.filter_by(user_id=current_user.id).all()
-    return jsonify([{
-        'id': q.id,
-        'content': q.content,
-        'answer': q.answer,
-        'domain': q.domain,
-        'process_group': q.process_group,
-        'created_at': q.created_at.isoformat()
-    } for q in questions])
+    try:
+        questions = db.get_all_questions()
+        return jsonify({
+            'questions': [{
+                'id': question['id'],
+                'question': question['question'],
+                'options': question['options'],
+                'correct_answer': question['correct_answer'],
+                'explanation': question['explanation'],
+                'topic': question['topic'],
+                'created_at': question['created_at']
+            } for question in questions]
+        })
+    except Exception as e:
+        logger.error(f"Error getting questions: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @main.route('/api/questions', methods=['POST'])
 @login_required
@@ -145,21 +150,16 @@ def generate():
 
         try:
             num_questions = int(data['num_questions'])
-            num_subtopics = int(data.get('num_subtopics', 3))  # Default to 3 if not provided
         except ValueError:
-            logger.error("Invalid number format for num_questions or num_subtopics")
+            logger.error("Invalid number format for num_questions")
             return jsonify({'error': 'Invalid number format'}), 400
 
         # Validate ranges
         if not (1 <= num_questions <= 10):
             logger.error(f"num_questions out of range: {num_questions}")
             return jsonify({'error': 'Number of questions must be between 1 and 10'}), 400
-        
-        if not (1 <= num_subtopics <= 5):
-            logger.error(f"num_subtopics out of range: {num_subtopics}")
-            return jsonify({'error': 'Number of subtopics must be between 1 and 5'}), 400
 
-        logger.info(f"Generating {num_questions} questions for topic: {topic} with {num_subtopics} subtopics")
+        logger.info(f"Generating {num_questions} questions for topic: {topic}")
         
         try:
             client = get_openai_client()
@@ -168,8 +168,7 @@ def generate():
                 num_questions=num_questions,
                 client=client,
                 api_key=os.getenv('OPENAI_API_KEY'),
-                model="gpt-4",
-                num_subtopics=num_subtopics
+                model="gpt-4"
             )
             
             if not questions:
@@ -278,18 +277,58 @@ def model_selection():
 @main.route('/api/random-question')
 @login_required
 def api_random_question():
-    db = DatabaseManager()
-    question = db.get_random_question()
-    if not question:
-        return {'error': 'Nenhuma questão encontrada'}, 404
-    return {
-        'id': question['id'],
-        'question': question['question'],
-        'options': question['options'],
-        'topic': question.get('topic', ''),
-        'subtopic': question.get('subtopic', ''),
-        'difficulty': question.get('difficulty', 1)
-    }
+    """Get a random question."""
+    try:
+        logger.info("[API] Iniciando busca de questão aleatória")
+        
+        db = DatabaseManager()
+        question = db.get_random_question()
+        
+        if not question:
+            logger.warning("[API] Nenhuma questão disponível")
+            return jsonify({
+                'error': 'Nenhuma questão disponível',
+                'details': 'Não há questões no banco de dados ou todas as questões estão inválidas'
+            }), 404
+        
+        # Log para debug
+        logger.info(f"[API] Questão retornada: {question}")
+        
+        # Garantir que todos os campos necessários estejam presentes
+        required_fields = ['id', 'question', 'options', 'correct_answer', 'explanation', 'topic']
+        for field in required_fields:
+            if field not in question or not question[field]:
+                logger.error(f"[API] Campo obrigatório ausente ou vazio: {field}")
+                return jsonify({
+                    'error': f'Questão inválida: campo {field} ausente',
+                    'details': 'A questão retornada está incompleta ou mal formatada'
+                }), 500
+        
+        # Garantir que options seja um array
+        if not isinstance(question['options'], list):
+            logger.error(f"[API] Campo options não é um array: {question['options']}")
+            return jsonify({
+                'error': 'Questão inválida: campo options mal formatado',
+                'details': 'O campo options deve ser um array'
+            }), 500
+        
+        # Garantir que correct_answer seja um número
+        if not isinstance(question['correct_answer'], int):
+            logger.error(f"[API] Campo correct_answer não é um número: {question['correct_answer']}")
+            return jsonify({
+                'error': 'Questão inválida: campo correct_answer mal formatado',
+                'details': 'O campo correct_answer deve ser um número'
+            }), 500
+        
+        return jsonify(question)
+        
+    except Exception as e:
+        logger.error(f"[API] Erro ao buscar questão aleatória: {str(e)}")
+        logger.error("[API] Stack trace:", exc_info=True)
+        return jsonify({
+            'error': 'Erro interno do servidor',
+            'details': str(e)
+        }), 500
 
 @main.route('/api/answer-question', methods=['POST'])
 @login_required
@@ -301,8 +340,13 @@ def api_answer_question():
     question = db.get_question_by_id(question_id)
     if not question:
         return {'error': 'Questão não encontrada'}, 404
-    correct_index = ord(question['correct_answer']) - ord('A')
+    
+    # Garantir que o índice da resposta correta seja inteiro
+    correct_index = int(question['correct_answer'])
     is_correct = (selected_index == correct_index)
+    
+    logger.info(f"[ANSWER] Questão {question_id}: selecionado={selected_index}, correto={correct_index}, acertou={is_correct}")
+    
     db.update_question_stats(question_id, is_correct)
     return {
         'correct': is_correct,
@@ -340,142 +384,83 @@ def process_documents():
         if not data or 'documents' not in data:
             logger.error('[PROCESS-DOCS] Dados inválidos recebidos no processamento')
             return jsonify({'error': 'Dados inválidos'}), 400
+        
         documents = data['documents']
         results = []
         import re
+        
         for doc_path in documents:
             try:
                 uploads_dir = os.path.join('data', 'uploads', 'resumos')
                 full_path = os.path.join(uploads_dir, doc_path)
                 logger.info(f'[PROCESS-DOCS] Processando documento: {doc_path} (caminho: {full_path})')
+                
                 if not os.path.exists(full_path):
                     logger.warning(f'[PROCESS-DOCS] Arquivo não encontrado: {full_path}')
                     results.append({'name': doc_path, 'status': 'Erro', 'message': 'Arquivo não encontrado'})
                     continue
+                
                 # Extrair texto do PDF
                 text = extract_text_from_pdf(full_path)
                 logger.info(f'[PROCESS-DOCS] Texto extraído do PDF ({doc_path}): {len(text)} caracteres')
+                
+                if not text.strip():
+                    logger.error(f'[PROCESS-DOCS] Texto extraído está vazio para o documento {doc_path}')
+                    results.append({'name': doc_path, 'status': 'Erro', 'message': 'Não foi possível extrair texto do documento'})
+                    continue
+                
                 # Separar texto original em blocos por tópico
-                # Exemplo: linhas que começam com "1-", "2-", "1.1-", etc.
                 original_blocks = []
                 current_block = ''
                 current_topic = None
+                
+                logger.info(f'[PROCESS-DOCS] Iniciando extração de tópicos do documento {doc_path}')
                 for line in text.splitlines():
                     match = re.match(r'^(\d+)(?:\.\d+)*-\s*(.*)', line.strip())
                     if match:
                         main_topic = match.group(1)
                         if current_topic is not None and main_topic != current_topic:
+                            logger.info(f'[PROCESS-DOCS] Encontrado novo tópico {main_topic} (anterior: {current_topic})')
                             original_blocks.append({'topic': current_topic, 'text': current_block.strip()})
                             current_block = ''
                         current_topic = main_topic
                         current_block += ('' if current_block == '' else '\n') + match.group(2)
                     else:
                         current_block += '\n' + line
+                
                 if current_block and current_topic is not None:
+                    logger.info(f'[PROCESS-DOCS] Adicionando último tópico {current_topic}')
                     original_blocks.append({'topic': current_topic, 'text': current_block.strip()})
+                
                 logger.info(f'[PROCESS-DOCS] Blocos de texto original extraídos: {len(original_blocks)}')
+                for block in original_blocks:
+                    logger.info(f'[PROCESS-DOCS] Tópico {block["topic"]}: {len(block["text"])} caracteres')
+                
                 # Filtrar apenas tópicos com texto não vazio
                 original_blocks = [b for b in original_blocks if b['text'].strip()]
-                # Remover quebras de linha do texto original para o prompt
-                text_no_breaks = text.replace('\n', ' ')
-                # Gerar prompt para chunking, agora incluindo o título do documento
-                document_title = os.path.splitext(doc_path)[0]
-                prompt = build_chunk_prompt(text_no_breaks, document_title=document_title)
-                logger.debug(f'[PROCESS-DOCS] Prompt gerado para IA: {prompt[:200]}...')
-                # Chamar a IA para processar o texto
-                client = get_openai_client()
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "Você é um assistente que processa textos técnicos."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2000
-                )
-                ia_result = response.choices[0].message.content
-                logger.info(f'[PROCESS-DOCS] Resposta da IA recebida para {doc_path} (tamanho: {len(ia_result)} caracteres)')
-                # Apagar chunks antigos do usuário para este documento
-                from app import db
-                from app.models import TextChunk
-                deleted = TextChunk.query.filter_by(document_title=document_title, user_id=current_user.id).delete()
-                logger.info(f'[PROCESS-DOCS] Chunks antigos removidos: {deleted}')
-                # Separar por tópicos usando regex (IA)
-                topic_blocks = re.split(r'(<T[óo]pico \d+:)', ia_result)
-                ia_chunks = []
-                i = 1
-                while i < len(topic_blocks):
-                    header = topic_blocks[i]
-                    content = topic_blocks[i+1] if i+1 < len(topic_blocks) else ''
-                    ia_chunks.append({'header': header, 'content': content})
-                    i += 2
-                # Salvar cada chunk separado, associando ao texto original
-                chunk_results = []
-                ia_topics = set()
-                for idx, ia_chunk in enumerate(ia_chunks):
-                    match = re.match(r'<T[óo]pico (\d+):', ia_chunk['header'])
-                    topic_num = match.group(1) if match else None
-                    ia_topics.add(topic_num)
-                    original_text = ''
-                    for block in original_blocks:
-                        if block['topic'] == topic_num:
-                            original_text = block['text']
-                            break
-                    chunk_text = (ia_chunk['header'] + ia_chunk['content']).strip()
-                    chunk = TextChunk(
-                        document_title=document_title,
-                        chunk_text=chunk_text,
-                        processed_text=chunk_text,
-                        user_id=current_user.id
-                    )
-                    db.session.add(chunk)
-                    logger.info(f'[PROCESS-DOCS] Chunk salvo (tópico {topic_num}) para documento {doc_path} e usuário {current_user.id}')
-                    chunk_results.append({
-                        'topic': topic_num,
-                        'original_text': original_text,
-                        'ia_text': chunk_text
-                    })
-                # Verificar se todos os tópicos do texto original foram analisados
-                missing_topics = [block['topic'] for block in original_blocks if block['topic'] not in ia_topics]
-                if missing_topics:
-                    logger.warning(f'[PROCESS-DOCS] Tópicos não analisados pela IA: {missing_topics}. Reenviando para IA.')
-                    for topic in missing_topics:
-                        block = next((b for b in original_blocks if b['topic'] == topic), None)
-                        if block:
-                            # Remover quebras de linha do texto do tópico
-                            block_text_no_breaks = block['text'].replace('\n', ' ')
-                            prompt_topic = build_chunk_prompt(block_text_no_breaks, document_title=document_title)
-                            response_topic = client.chat.completions.create(
-                                model="gpt-3.5-turbo",
-                                messages=[
-                                    {"role": "system", "content": "Você é um assistente que processa textos técnicos."},
-                                    {"role": "user", "content": prompt_topic}
-                                ],
-                                temperature=0.7,
-                                max_tokens=1000
-                            )
-                            ia_topic_result = response_topic.choices[0].message.content
-                            logger.info(f'[PROCESS-DOCS] Resposta da IA para tópico {topic} recebida (tamanho: {len(ia_topic_result)} caracteres)')
-                            chunk = TextChunk(
-                                document_title=document_title,
-                                chunk_text=ia_topic_result,
-                                processed_text=ia_topic_result,
-                                user_id=current_user.id
-                            )
-                            db.session.add(chunk)
-                            chunk_results.append({
-                                'topic': topic,
-                                'original_text': block['text'].replace('\n', ' '),
-                                'ia_text': ia_topic_result
-                            })
-                db.session.commit()
-                results.append({'name': doc_path, 'status': 'Processado', 'message': f'Processamento concluído com sucesso. {len(chunk_results)} tópicos salvos.', 'chunks': chunk_results})
+                logger.info(f'[PROCESS-DOCS] Tópicos após filtragem: {len(original_blocks)}')
+                
+                if not original_blocks:
+                    logger.error(f'[PROCESS-DOCS] Nenhum tópico válido encontrado no documento {doc_path}')
+                    results.append({'name': doc_path, 'status': 'Erro', 'message': 'Nenhum tópico válido encontrado no documento'})
+                    continue
+                
+                # Retornar apenas os tópicos extraídos, sem processamento
+                results.append({
+                    'name': doc_path, 
+                    'status': 'Extraído', 
+                    'message': f'Extração concluída com sucesso. {len(original_blocks)} tópicos encontrados.',
+                    'topics': original_blocks
+                })
+                
             except Exception as e:
                 current_app.logger.error(f'[PROCESS-DOCS] Erro ao processar documento {doc_path}: {str(e)}')
                 results.append({'name': doc_path, 'status': 'Erro', 'message': str(e)})
                 continue
-        logger.info(f'[PROCESS-DOCS] Resultado final do processamento: {results}')
+                
+        logger.info(f'[PROCESS-DOCS] Resultado final da extração: {results}')
         return jsonify({'success': True, 'results': results})
+        
     except Exception as e:
         current_app.logger.error(f'[PROCESS-DOCS] Erro no processamento de documentos: {str(e)}')
         return jsonify({'error': str(e)}), 500
@@ -483,14 +468,27 @@ def process_documents():
 def extract_text_from_pdf(pdf_path):
     logger.info(f'[EXTRACT-PDF] Extraindo texto do arquivo: {pdf_path}')
     text = ""
-    with open(pdf_path, 'rb') as file:
-        reader = PyPDF2.PdfReader(file)
-        for page in reader.pages:
-            page_text = page.extract_text()
-            logger.debug(f'[EXTRACT-PDF] Página extraída ({len(page_text) if page_text else 0} caracteres)')
-            text += page_text if page_text else ''
-    logger.info(f'[EXTRACT-PDF] Extração concluída ({len(text)} caracteres)')
-    return text
+    try:
+        with open(pdf_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            total_pages = len(reader.pages)
+            logger.info(f'[EXTRACT-PDF] Total de páginas no PDF: {total_pages}')
+            
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text()
+                if not page_text:
+                    logger.warning(f'[EXTRACT-PDF] Página {i+1} retornou texto vazio')
+                else:
+                    logger.info(f'[EXTRACT-PDF] Página {i+1} extraída ({len(page_text)} caracteres)')
+                    text += page_text
+                    
+            logger.info(f'[EXTRACT-PDF] Extração concluída ({len(text)} caracteres)')
+            if not text.strip():
+                logger.error('[EXTRACT-PDF] Texto extraído está vazio!')
+            return text
+    except Exception as e:
+        logger.error(f'[EXTRACT-PDF] Erro ao extrair texto do PDF: {str(e)}')
+        raise
 
 def split_text_into_chunks(text, chunk_size=1000):
     words = text.split()
@@ -543,19 +541,17 @@ def process_chunks_with_ai(chunks):
 @login_required
 def get_document_chunks(document_title):
     try:
-        chunks = TextChunk.query.filter_by(
-            document_title=document_title,
-            user_id=current_user.id
-        ).all()
+        db = DatabaseManager()
+        summaries = db.get_summaries_by_document(document_title)
         
         return jsonify({
             'success': True,
             'chunks': [{
-                'id': chunk.id,
-                'chunk_text': chunk.chunk_text,
-                'processed_text': chunk.processed_text,
-                'created_at': chunk.created_at.isoformat()
-            } for chunk in chunks]
+                'id': summary['id'],
+                'chunk_text': summary['summary'],
+                'processed_text': summary['summary'],
+                'created_at': summary['created_at']
+            } for summary in summaries]
         })
         
     except Exception as e:
@@ -569,13 +565,39 @@ def list_documents():
     try:
         files = os.listdir(uploads_dir)
         documents = []
+        db_manager = DatabaseManager()
+        
         for f in files:
             if os.path.isfile(os.path.join(uploads_dir, f)):
                 title = os.path.splitext(f)[0]
                 processed = False
+                
                 if current_user.is_authenticated:
-                    processed = TextChunk.query.filter_by(document_title=title, user_id=current_user.id).first() is not None
-                documents.append({'name': f, 'processed': processed})
+                    # Verificar se existem resumos para este documento
+                    conn = db_manager.get_connection()
+                    cursor = conn.cursor()
+                    
+                    # Buscar resumos na tabela topic_summaries
+                    cursor.execute('''
+                        SELECT COUNT(*) 
+                        FROM topic_summaries 
+                        WHERE document_title = ?
+                    ''', (title,))
+                    
+                    summary_count = cursor.fetchone()[0]
+                    conn.close()
+                    
+                    # Considerar processado se houver pelo menos um resumo
+                    processed = summary_count > 0
+                    
+                    logger.info(f'[LIST] Documento {title}: {summary_count} resumos encontrados')
+                
+                documents.append({
+                    'name': f, 
+                    'processed': processed,
+                    'summary_count': summary_count if current_user.is_authenticated else 0
+                })
+                
         logger.info(f'[LIST] Documentos encontrados: {[d["name"] for d in documents]}')
         return jsonify({'documents': documents})
     except Exception as e:
@@ -684,31 +706,79 @@ def extract_topics():
 @main.route('/api/process-topic', methods=['POST'])
 @login_required
 def process_topic():
+    """Processa um tópico e gera um resumo"""
     try:
         data = request.get_json()
         document_title = data.get('document_title')
         topic = data.get('topic')
-        text = data.get('text')
-        if not document_title or not topic or not text:
-            return jsonify({'error': 'Parâmetros obrigatórios ausentes'}), 400
-        # Importações locais corretas
-        from app.openai_client import build_chunk_prompt
-        from app.api.openai_client import get_openai_client
-        prompt = build_chunk_prompt(text, document_title=document_title)
+        topic_text = data.get('topic_text')
+        
+        logger.info(f"[PROCESS-TOPIC] Iniciando processamento de tópico")
+        logger.info(f"[PROCESS-TOPIC] Processando tópico {topic} do documento {document_title}")
+        
+        if not topic_text:
+            logger.error("[PROCESS-TOPIC] Texto do tópico não fornecido")
+            return jsonify({
+                'success': False,
+                'message': 'Texto do tópico não fornecido'
+            }), 400
+        
+        # Inicializar cliente OpenAI
+        logger.info(f"[PROCESS-TOPIC] Cliente OpenAI inicializado")
         client = get_openai_client()
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "Você é um assistente que processa textos técnicos."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=1000
-        )
-        ia_text = response.choices[0].message.content
-        return jsonify({'success': True, 'ia_text': ia_text})
+        
+        # Gerar resumo
+        logger.info(f"[PROCESS-TOPIC] Gerando resumo para tópico {topic}")
+        summary_data = generate_topic_summary(topic_text, client, os.getenv('OPENAI_API_KEY'))
+        
+        # Salvar no banco de dados
+        logger.info(f"[PROCESS-TOPIC] Iniciando salvamento no banco de dados")
+        db = DatabaseManager()
+        logger.info(f"[PROCESS-TOPIC] DatabaseManager inicializado")
+        
+        try:
+            logger.info(f"[PROCESS-TOPIC] Tentando salvar resumo do tópico")
+            logger.info(f"[PROCESS-TOPIC] Dados do resumo: {summary_data}")
+            summary_id = db.save_topic_summary(
+                document_title=document_title,
+                topic=topic,
+                summary=summary_data['summary'],
+                key_points=summary_data['key_points'],
+                practical_examples=summary_data['practical_examples'],
+                pmbok_references=summary_data['pmbok_references'],
+                domains=summary_data.get('domains', [])  # Usar get() para evitar KeyError
+            )
+            logger.info(f"[PROCESS-TOPIC] Resumo salvo com ID {summary_id}")
+            
+            # Buscar o resumo salvo para retornar na resposta
+            summary = db.get_topic_summary(summary_id)
+            
+            return jsonify({
+                'success': True,
+                'summary_id': summary_id,
+                'message': 'Tópico processado com sucesso',
+                'summary': summary.summary,
+                'key_points': summary.key_points,
+                'practical_examples': summary.practical_examples,
+                'pmbok_references': summary.pmbok_references,
+                'domains': summary.domains
+            })
+            
+        except Exception as e:
+            logger.error(f"[PROCESS-TOPIC] Erro ao salvar resumo: {str(e)}")
+            logger.error("[PROCESS-TOPIC] Stack trace:", exc_info=True)
+            return jsonify({
+                'success': False,
+                'message': f'Erro ao salvar resumo: {str(e)}'
+            }), 500
+            
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"[PROCESS-TOPIC] Erro ao processar tópico: {str(e)}")
+        logger.error("[PROCESS-TOPIC] Stack trace:", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Erro ao processar tópico: {str(e)}'
+        }), 500
 
 @main.route('/api/save-chunks', methods=['POST'])
 @login_required
@@ -820,4 +890,148 @@ def delete_question(question_id):
             return jsonify({'success': False, 'error': 'Questão não encontrada'}), 404
     except Exception as e:
         logger.error(f"Erro ao excluir questão {question_id}: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)}), 500 
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@main.route('/api/domains', methods=['GET'])
+@login_required
+def get_domains():
+    """Retorna a lista de domínios disponíveis"""
+    try:
+        domains = Domain.query.all()
+        return jsonify({
+            'success': True,
+            'domains': [{'id': d.id, 'name': d.name, 'description': d.description} for d in domains]
+        })
+    except Exception as e:
+        logger.error(f"Erro ao buscar domínios: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@main.route('/api/generate-questions', methods=['POST'])
+@login_required
+def generate_questions_route():
+    try:
+        data = request.get_json()
+        topic = data.get('topic')
+        num_questions = int(data.get('num_questions', 5))  # Default to 5 if not provided
+        
+        logger.info(f"[GENERATE] Iniciando geração de questões")
+        logger.info(f"[GENERATE] Tópico: {topic}")
+        logger.info(f"[GENERATE] Número de questões: {num_questions}")
+        
+        if not topic:
+            logger.error("[GENERATE] Tópico não fornecido")
+            return jsonify({'error': 'Topic is required'}), 400
+            
+        if not isinstance(num_questions, int) or num_questions < 1:
+            logger.error(f"[GENERATE] Número inválido de questões: {num_questions}")
+            return jsonify({'error': 'Number of questions must be a positive integer'}), 400
+            
+        if not (1 <= num_questions <= 20):
+            logger.error(f"[GENERATE] Número de questões fora do intervalo: {num_questions}")
+            return jsonify({'error': 'Number of questions must be between 1 and 20'}), 400
+            
+        logger.info(f"[GENERATE] Gerando {num_questions} questões para o tópico: {topic}")
+        
+        # Verificar API key
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            logger.error("[GENERATE] API key não encontrada")
+            return jsonify({'error': 'OpenAI API key not configured'}), 500
+        
+        # Generate questions using OpenAI
+        try:
+            questions = generate_questions(
+                topic=topic,
+                num_questions=num_questions,
+                api_key=api_key
+            )
+            
+            if not questions:
+                logger.error("[GENERATE] Nenhuma questão gerada")
+                return jsonify({'error': 'Failed to generate questions'}), 500
+                
+            logger.info(f"[GENERATE] Questões geradas: {len(questions)}")
+            
+            # Salvar questões no banco
+            db = DatabaseManager()
+            saved_questions = []
+            
+            for question in questions:
+                try:
+                    # Validar campos obrigatórios
+                    required_fields = ['question', 'options', 'correct_answer', 'explanation', 'topic']
+                    missing_fields = [field for field in required_fields if not question.get(field)]
+                    
+                    if missing_fields:
+                        logger.error(f"[GENERATE] Questão com campos ausentes: {missing_fields}")
+                        continue
+                    
+                    # Garantir que options seja um array
+                    if not isinstance(question['options'], list):
+                        logger.error(f"[GENERATE] Campo options não é um array: {question['options']}")
+                        continue
+                    
+                    # Garantir que correct_answer seja um número
+                    if not isinstance(question['correct_answer'], int):
+                        logger.error(f"[GENERATE] Campo correct_answer não é um número: {question['correct_answer']}")
+                        continue
+                    
+                    # Salvar questão
+                    question_id = db.save_question(question)
+                    if question_id:
+                        saved_questions.append(question_id)
+                        logger.info(f"[GENERATE] Questão salva com ID: {question_id}")
+                    
+                except Exception as e:
+                    logger.error(f"[GENERATE] Erro ao salvar questão: {str(e)}")
+                    continue
+            
+            if not saved_questions:
+                logger.error("[GENERATE] Nenhuma questão foi salva")
+                return jsonify({'error': 'Failed to save any questions'}), 500
+            
+            logger.info(f"[GENERATE] Total de questões salvas: {len(saved_questions)}")
+            
+            return jsonify({
+                'success': True,
+                'questions': questions,
+                'saved_count': len(saved_questions),
+                'message': f'Successfully generated and saved {len(saved_questions)} questions'
+            })
+            
+        except Exception as e:
+            logger.error(f"[GENERATE] Erro ao gerar questões: {str(e)}")
+            logger.error("[GENERATE] Stack trace:", exc_info=True)
+            return jsonify({'error': f'Error generating questions: {str(e)}'}), 500
+        
+    except Exception as e:
+        logger.error(f"[GENERATE] Erro no processamento da requisição: {str(e)}")
+        logger.error("[GENERATE] Stack trace:", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@main.route('/api/database-status')
+@login_required
+def api_database_status():
+    """Get database status information."""
+    try:
+        logger.info("[API] Verificando status do banco de dados")
+        db = DatabaseManager()
+        status = db.check_database_status()
+        
+        if 'error' in status:
+            logger.error(f"[API] Erro ao verificar status do banco: {status['error']}")
+            return jsonify({
+                'error': 'Erro ao verificar status do banco',
+                'details': status['error']
+            }), 500
+        
+        logger.info(f"[API] Status do banco: {status}")
+        return jsonify(status)
+        
+    except Exception as e:
+        logger.error(f"[API] Erro ao verificar status do banco: {str(e)}")
+        logger.error("[API] Stack trace:", exc_info=True)
+        return jsonify({
+            'error': 'Erro interno do servidor',
+            'details': str(e)
+        }), 500 

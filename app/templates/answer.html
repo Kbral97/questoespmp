@@ -37,29 +37,99 @@ async function loadQuestion() {
   answered = false;
   document.getElementById('feedback-area').innerHTML = '';
   document.getElementById('actions-area').innerHTML = '';
-  const resp = await fetch('/api/random-question');
-  if (!resp.ok) {
-    document.getElementById('question-text').textContent = 'Não há questões disponíveis.';
+  
+  try {
+    // Primeiro, verificar o status do banco
+    const statusResp = await fetch('/api/database-status');
+    const statusData = await statusResp.json();
+    console.log('Status do banco:', statusData);
+    
+    if (statusData.questions_count === 0) {
+      document.getElementById('question-text').innerHTML = `
+        <div style="color: #d32f2f; margin-bottom: 16px;">
+          <b>Nenhuma questão disponível</b>
+        </div>
+        <div style="font-size: 0.9em; color: #666;">
+          <p>Detalhes do banco de dados:</p>
+          <ul>
+            <li>Banco existe: ${statusData.database_exists ? 'Sim' : 'Não'}</li>
+            <li>Tamanho do banco: ${(statusData.database_size / 1024).toFixed(2)} KB</li>
+            <li>Tabelas: ${statusData.tables.join(', ')}</li>
+          </ul>
+          <p>Por favor, gere algumas questões antes de tentar respondê-las.</p>
+        </div>
+      `;
+      document.getElementById('options-area').innerHTML = '';
+      return;
+    }
+    
+    const resp = await fetch('/api/random-question');
+    const data = await resp.json();
+    
+    if (!resp.ok) {
+      console.error('Erro ao carregar questão:', data);
+      document.getElementById('question-text').textContent = data.error || 'Erro ao carregar questão.';
+      if (data.details) {
+        document.getElementById('question-text').textContent += ` ${data.details}`;
+      }
+      document.getElementById('options-area').innerHTML = '';
+      return;
+    }
+    
+    console.log('Questão carregada:', data); // Log para debug
+    
+    // Validar campos obrigatórios
+    const requiredFields = ['id', 'question', 'options', 'correct_answer', 'explanation', 'topic'];
+    const missingFields = requiredFields.filter(field => !data[field]);
+    
+    if (missingFields.length > 0) {
+      console.error('Campos obrigatórios ausentes:', missingFields);
+      document.getElementById('question-text').textContent = 'Erro: Questão incompleta. Campos obrigatórios ausentes.';
+      document.getElementById('options-area').innerHTML = '';
+      return;
+    }
+    
+    currentQuestion = data;
+    document.getElementById('question-text').textContent = data.question;
+    
+    const optionsArea = document.getElementById('options-area');
+    optionsArea.innerHTML = '';
+    
+    if (!Array.isArray(data.options) || data.options.length === 0) {
+      console.error('Opções inválidas:', data.options);
+      document.getElementById('question-text').textContent = 'Erro: Opções inválidas.';
+      return;
+    }
+    
+    // Classificar o tamanho do texto das opções
+    const textLengths = data.options.map(opt => opt.length);
+    const avgLength = textLengths.reduce((a, b) => a + b, 0) / textLengths.length;
+    
+    data.options.forEach((opt, idx) => {
+      const div = document.createElement('div');
+      div.className = 'option';
+      // Determinar o tamanho do texto
+      let textLength = 'medium';
+      if (opt.length > avgLength * 1.5) {
+        textLength = 'long';
+      } else if (opt.length < avgLength * 0.7) {
+        textLength = 'short';
+      }
+      div.setAttribute('data-text-length', textLength);
+      div.innerHTML = `<span class="option-label">${String.fromCharCode(65+idx)}. ${opt}</span>`;
+      div.onclick = () => answerQuestion(idx, div);
+      div.style.cursor = 'pointer';
+      optionsArea.appendChild(div);
+    });
+    
+  } catch (error) {
+    console.error('Erro ao carregar questão:', error);
+    document.getElementById('question-text').textContent = 'Erro ao carregar questão. Por favor, tente novamente.';
     document.getElementById('options-area').innerHTML = '';
-    return;
   }
-  const data = await resp.json();
-  currentQuestion = data;
-  document.getElementById('question-text').textContent = data.question;
-  const optionsArea = document.getElementById('options-area');
-  optionsArea.innerHTML = '';
-  data.options.forEach((opt, idx) => {
-    const btn = document.createElement('button');
-    btn.className = 'mdc-button mdc-button--outlined';
-    btn.style = 'display:block;width:100%;margin-bottom:12px;text-align:left;transition:background 0.2s;';
-    btn.innerHTML = `<span class=\"mdc-button__ripple\"></span><span class=\"mdc-button__label\">${String.fromCharCode(65+idx)}. ${opt}</span>`;
-    btn.onclick = () => answerQuestion(idx, btn);
-    btn.disabled = false;
-    optionsArea.appendChild(btn);
-  });
 }
 
-async function answerQuestion(idx, btn) {
+async function answerQuestion(idx, div) {
   if (answered) return;
   answered = true;
   const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -70,20 +140,39 @@ async function answerQuestion(idx, btn) {
   });
   const data = await resp.json();
   const optionsArea = document.getElementById('options-area');
-  const buttons = optionsArea.querySelectorAll('button');
-  buttons.forEach((b, i) => {
-    b.disabled = true;
+  const divs = optionsArea.querySelectorAll('.option');
+  // Log para debug
+  console.log('Resposta:', {
+    selected: idx,
+    correct: data.correct_index,
+    isCorrect: data.correct
+  });
+  divs.forEach((d, i) => {
+    d.onclick = null;
+    d.classList.remove('selected', 'correct', 'incorrect');
     if (i === data.correct_index) {
-      b.style.background = '#C8E6C9'; // verde claro
+      d.classList.add('correct');
+      d.innerHTML = `<span class="option-label">${String.fromCharCode(65+i)}. ${currentQuestion.options[i]} ✓</span>`;
     } else if (i === idx) {
-      b.style.background = '#FFCDD2'; // vermelho claro
-    } else {
-      b.style.background = '';
+      d.classList.add('incorrect');
+      d.innerHTML = `<span class="option-label">${String.fromCharCode(65+i)}. ${currentQuestion.options[i]} ✗</span>`;
     }
   });
-  let feedback = data.correct ? '<b>Correto!</b>' : '<b>Incorreto.</b>';
-  feedback += `<br><span>${data.explanation || ''}</span>`;
-  document.getElementById('feedback-area').innerHTML = feedback;
+  let feedback = '';
+  const feedbackArea = document.getElementById('feedback-area');
+  if (data.correct) {
+    feedback = `<span class='feedback-icon'>✓</span> <span class='feedback-title'>Correto!</span><br><span>${data.explanation || ''}</span>`;
+    feedbackArea.className = 'feedback-correct';
+  } else {
+    const correctIdx = data.correct_index !== undefined ? data.correct_index : data.correct_answer;
+    const letra = String.fromCharCode(65 + correctIdx);
+    const textoCorreta = currentQuestion.options[correctIdx];
+    feedback = `<span class='feedback-icon'>✗</span> <span class='feedback-title'>Incorreto.</span>`;
+    feedback += `<br><b>Resposta correta:</b> <span style='color:#388e3c;'>${letra}. ${textoCorreta}</span>`;
+    feedback += `<br><b>Justificativa:</b> <span>${data.explanation || ''}</span>`;
+    feedbackArea.className = 'feedback-incorrect';
+  }
+  feedbackArea.innerHTML = feedback;
   renderActions();
 }
 
@@ -146,4 +235,100 @@ function closeReportDialog() {
 
 window.addEventListener('DOMContentLoaded', loadQuestion);
 </script>
-{% endblock %} 
+{% endblock %}
+
+<style>
+.option {
+    padding: 24px 18px;
+    margin-bottom: 32px;
+    border: 2px solid #bbb;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background-color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    line-height: 1.7;
+    font-size: 17px;
+    min-height: 70px;
+    display: flex;
+    align-items: center;
+    position: relative;
+}
+.option:not(:last-child) {
+    border-bottom: 4px solid #e0e0e0;
+}
+.option:nth-child(even) {
+    background-color: #f7fafd;
+}
+.option.selected {
+    background-color: #e3f2fd;
+    border-color: #2196f3;
+}
+.option.correct {
+    background-color: #e8f5e9;
+    border-color: #4caf50;
+}
+.option.incorrect {
+    background-color: #ffebee;
+    border-color: #f44336;
+}
+.option[data-text-length="long"] {
+    padding: 28px 18px;
+    line-height: 1.85;
+}
+.option[data-text-length="medium"] {
+    padding: 24px 18px;
+    line-height: 1.75;
+}
+.option[data-text-length="short"] {
+    padding: 22px 18px;
+    line-height: 1.7;
+}
+@media (max-width: 768px) {
+    .option {
+        padding: 14px 8px;
+        margin-bottom: 18px;
+        font-size: 15px;
+    }
+    .option[data-text-length="long"] {
+        padding: 18px 8px;
+    }
+    .option[data-text-length="medium"] {
+        padding: 16px 8px;
+    }
+}
+#feedback-area {
+    margin-top: 24px;
+    padding: 24px 18px;
+    border-radius: 10px;
+    font-size: 1.15em;
+    font-weight: 500;
+    min-height: 48px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+    transition: background 0.3s, color 0.3s;
+}
+.feedback-correct {
+    background: #e8f5e9;
+    color: #256029;
+    border: 2.5px solid #43a047;
+    box-shadow: 0 2px 16px #43a04722;
+}
+.feedback-incorrect {
+    background: #ffebee;
+    color: #b71c1c;
+    border: 2.5px solid #e53935;
+    box-shadow: 0 2px 16px #e5393522;
+}
+.feedback-icon {
+    font-size: 2.2em;
+    font-weight: bold;
+    vertical-align: middle;
+    margin-right: 10px;
+}
+.feedback-title {
+    font-size: 1.2em;
+    font-weight: bold;
+    display: inline-block;
+    margin-bottom: 6px;
+}
+</style> 

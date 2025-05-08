@@ -74,20 +74,9 @@ def create_app(config_class=Config):
     from app.routes import main as main_blueprint
     app.register_blueprint(main_blueprint)
     
-    # Criação das tabelas do banco de dados
+    # Inicializar o banco de dados
     with app.app_context():
-        try:
-            # Verifica se as tabelas já existem
-            inspector = db.inspect(db.engine)
-            existing_tables = inspector.get_table_names()
-            
-            if not existing_tables:
-                logger.info("Criando tabelas do banco de dados...")
-                db.create_all()
-            else:
-                logger.info("Tabelas já existem no banco de dados")
-        except Exception as e:
-            logger.error(f"Erro ao criar tabelas: {str(e)}")
-            raise
+        from app.database import init_db
+        init_db()
     
     return app

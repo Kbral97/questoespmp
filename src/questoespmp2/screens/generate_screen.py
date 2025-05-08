@@ -23,7 +23,7 @@ from kivymd.uix.card import MDCard
 from kivymd.uix.progressbar import MDProgressBar
 from kivymd.uix.snackbar import Snackbar
 
-from ..api.openai_client import generate_questions, generate_questions_with_specialized_models
+from ..api.openai_client import generate_questions, generate_questions_with_specialized_models, get_openai_client
 from ..api.openai_client import list_available_models, find_relevant_training_data
 from ..database.db_manager import DatabaseManager
 from questoespmp2.utils.api_manager import APIManager
@@ -808,10 +808,7 @@ class GenerateScreen(MDScreen):
                 questions = generate_questions(
                     topic=topic,
                     num_questions=num_questions,
-                    model=question_model,  # Usar apenas o modelo de questões
-                    api_key=api_key,
-                    relevant_chunks=relevant_chunks,
-                    progress_callback=self.update_progress
+                    api_key=api_key
                 )
             
             if not questions:
