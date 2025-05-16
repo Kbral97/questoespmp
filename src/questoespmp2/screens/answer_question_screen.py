@@ -67,7 +67,7 @@ class AnswerQuestionScreen(MDScreen):
     def __init__(self, **kwargs):
         """Initialize the answer question screen."""
         super(AnswerQuestionScreen, self).__init__(**kwargs)
-        self.db = DatabaseManager()
+        self.db_manager = DatabaseManager()
         self.dialogs = []
         self.selected_answer = None
         self.option_buttons = []
@@ -193,7 +193,7 @@ class AnswerQuestionScreen(MDScreen):
     
     def load_question(self):
         """Load a random question from the database."""
-        question = self.db.get_random_question()
+        question = self.db_manager.get_random_question()
         if not question:
             self.show_no_questions_dialog()
             return
@@ -292,7 +292,7 @@ class AnswerQuestionScreen(MDScreen):
         
         # Atualizar estatísticas
         try:
-            self.db.update_question_stats(
+            self.db_manager.update_question_stats(
                 self.current_question['id'],
                 index == correct_index
             )
@@ -435,7 +435,7 @@ class AnswerQuestionScreen(MDScreen):
             dialog.dismiss()
             
             # Reportar o problema no banco de dados
-            if self.db.report_question_problem(self.current_question['id'], problem_type, details):
+            if self.db_manager.report_question_problem(self.current_question['id'], problem_type, details):
                 # Mostrar confirmação
                 confirm_dialog = MDDialog(
                     title="Obrigado pelo feedback!",

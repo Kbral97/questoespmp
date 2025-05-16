@@ -28,75 +28,74 @@ __all__ = ['DatabaseManager']
 
 def init_default_domains():
     """Inicializa os domínios padrão do PMBOK se não existirem"""
-    from app.models import Domain
-    
-    logger.info("Iniciando criação dos domínios padrão...")
-    
-    default_domains = [
-        {
-            'name': 'Gerenciamento da Integração',
-            'description': 'Processos e atividades necessários para identificar, definir, combinar, unificar e coordenar os vários processos e atividades do gerenciamento de projetos.'
-        },
-        {
-            'name': 'Gerenciamento do Escopo',
-            'description': 'Processos necessários para garantir que o projeto inclua todo o trabalho necessário, e apenas ele, para completar o projeto com sucesso.'
-        },
-        {
-            'name': 'Gerenciamento do Cronograma',
-            'description': 'Processos necessários para gerenciar o término do projeto no prazo.'
-        },
-        {
-            'name': 'Gerenciamento dos Custos',
-            'description': 'Processos envolvidos em planejamento, estimativa, orçamentação, financiamento, gerenciamento e controle dos custos.'
-        },
-        {
-            'name': 'Gerenciamento da Qualidade',
-            'description': 'Processos e atividades da organização executora que determinam as políticas de qualidade, os objetivos e as responsabilidades.'
-        },
-        {
-            'name': 'Gerenciamento dos Recursos',
-            'description': 'Processos que organizam, gerenciam e lideram a equipe do projeto.'
-        },
-        {
-            'name': 'Gerenciamento das Comunicações',
-            'description': 'Processos necessários para garantir que as informações do projeto sejam geradas, coletadas, distribuídas, armazenadas, recuperadas e organizadas.'
-        },
-        {
-            'name': 'Gerenciamento dos Riscos',
-            'description': 'Processos de condução do planejamento do gerenciamento de riscos, identificação, análise, planejamento de respostas e monitoramento e controle dos riscos.'
-        },
-        {
-            'name': 'Gerenciamento das Aquisições',
-            'description': 'Processos necessários para comprar ou adquirir produtos, serviços ou resultados necessários de fora da equipe do projeto.'
-        },
-        {
-            'name': 'Gerenciamento das Partes Interessadas',
-            'description': 'Processos necessários para identificar as pessoas, grupos ou organizações que podem impactar ou ser impactados pelo projeto.'
-        }
-    ]
-    
     try:
-        # Verificar se a tabela domains existe
-        inspector = db.inspect(db.engine)
-        if 'domains' not in inspector.get_table_names():
-            logger.info("Tabela 'domains' não encontrada. Criando tabela...")
-            Domain.__table__.create(db.engine)
-            logger.info("Tabela 'domains' criada com sucesso.")
-        
-        # Inserir domínios padrão
+        from app.models import Domain
+        from app import db
+    
+        # Lista de domínios padrão do PMBOK (exatamente como usados na tabela topic_summaries)
+        default_domains = [
+            {
+                'name': 'Gestão da Integração',
+                'description': 'Processos e atividades necessários para identificar, definir, combinar, unificar e coordenar os vários processos e atividades do gerenciamento de projetos.'
+            },
+            {
+                'name': 'Gestão do Escopo',
+                'description': 'Processos necessários para garantir que o projeto inclua todo o trabalho necessário, e apenas ele, para completar o projeto com sucesso.'
+            },
+            {
+                'name': 'Gestão do Tempo',
+                'description': 'Processos necessários para gerenciar o término do projeto no prazo.'
+            },
+            {
+                'name': 'Gestão do Custo',
+                'description': 'Processos envolvidos em planejamento, estimativa, orçamentação, financiamento, gerenciamento e controle dos custos.'
+            },
+            {
+                'name': 'Gestão da Qualidade',
+                'description': 'Processos e atividades da organização executora que determinam as políticas de qualidade, os objetivos e as responsabilidades.'
+            },
+            {
+                'name': 'Gestão de Recursos',
+                'description': 'Processos que organizam, gerenciam e lideram a equipe do projeto.'
+            },
+            {
+                'name': 'Gestão das Comunicações',
+                'description': 'Processos necessários para garantir que as informações do projeto sejam geradas, coletadas, distribuídas, armazenadas, recuperadas e organizadas de maneira oportuna e apropriada.'
+            },
+            {
+                'name': 'Gestão dos Riscos',
+                'description': 'Processos de condução do planejamento do gerenciamento de riscos, identificação, análise, planejamento de respostas e monitoramento e controle dos riscos do projeto.'
+            },
+            {
+                'name': 'Gestão das Aquisições',
+                'description': 'Processos necessários para comprar ou adquirir produtos, serviços ou resultados necessários de fora da equipe do projeto.'
+            },
+            {
+                'name': 'Gestão de Stakeholders',
+                'description': 'Processos necessários para identificar as pessoas, grupos ou organizações que podem impactar ou ser impactados pelo projeto.'
+            }
+        ]
+    
+        # Verificar e adicionar domínios que não existem
         for domain_data in default_domains:
             domain = Domain.query.filter_by(name=domain_data['name']).first()
             if not domain:
-                logger.info(f"Criando domínio: {domain_data['name']}")
-                domain = Domain(**domain_data)
+                domain = Domain(
+                    name=domain_data['name'],
+                    description=domain_data['description']
+                )
                 db.session.add(domain)
+                logger.info(f"Domínio adicionado: {domain_data['name']}")
+            else:
+                # Atualizar descrição se o domínio já existir
+                domain.description = domain_data['description']
+                logger.info(f"Domínio atualizado: {domain_data['name']}")
         
         db.session.commit()
-        logger.info("Domínios padrão inicializados com sucesso.")
+        logger.info("Domínios padrão inicializados com sucesso")
         
     except Exception as e:
-        logger.error(f"Erro ao inicializar domínios: {str(e)}")
-        db.session.rollback()
+        logger.error(f"Erro ao inicializar domínios padrão: {str(e)}")
         raise e
 
 def init_db():

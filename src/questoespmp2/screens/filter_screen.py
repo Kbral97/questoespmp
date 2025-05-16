@@ -20,8 +20,12 @@ from kivymd.uix.selectioncontrol import MDCheckbox
 from kivymd.uix.tooltip import MDTooltip
 from kivymd.uix.chip import MDChip
 from kivymd.uix.menu import MDDropdownMenu
+from ..database.db_manager import DatabaseManager
+import logging
 
-from ..database.db_manager import get_filtered_questions, get_question_topics, get_question_count
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class FilterScreen(MDScreen):
     """Screen for filtering and displaying questions."""
@@ -29,6 +33,7 @@ class FilterScreen(MDScreen):
     def __init__(self, **kwargs):
         """Initialize the filter questions screen."""
         super().__init__(**kwargs)
+        self.db_manager = DatabaseManager()
         self.dialogs = []
         self.topics_menu = None
         self.difficulty_menu = None
@@ -624,79 +629,79 @@ class FilterScreen(MDScreen):
             self.display_results()
     
     def view_question(self, question):
-        """View a question's details."""
-        # Get full question details from database
-        full_question = self.db.get_question_by_text(question['question'])
-        if not full_question:
-            return
+        """View details of a specific question."""
+        try:
+            # Get full question details from database
+            full_question = self.db_manager.get_question_by_text(question['question'])
             
-        # Create content for dialog
-        content = MDBoxLayout(orientation="vertical", spacing=10, padding=10, size_hint_y=None, height=400)
-        
-        # Question text - remove [b] tags
-        question_text = full_question["question"].replace('[b]', '').replace('[/b]', '')
-        question_label = MDLabel(
-            text=question_text,
-            font_style="Body1",
-            halign="left",
-            size_hint_y=None,
-            height=80
-        )
-        content.add_widget(question_label)
-        
-        # Options
-        options_scroll = ScrollView(size_hint=(1, None), height=200)
-        options_list = MDList()
-        
-        for i, option_text in enumerate(full_question["options"]):
-            # Remove [b] tags from options
-            option_text = option_text.replace('[b]', '').replace('[/b]', '')
-            option_text = f"{chr(65 + i)}. {option_text}"
+            if not full_question:
+                self.show_error_dialog("Questão não encontrada no banco de dados.")
+                return
             
-            # Mark correct option
-            if i == full_question["correct_answer"]:
-                option_item = TwoLineAvatarIconListItem(
-                    text=option_text,
-                    secondary_text="✓ Resposta correta"
-                )
-                icon = IconLeftWidget(icon="check-circle", theme_text_color="Custom", text_color=(0, 0.7, 0, 1))
-            else:
-                option_item = TwoLineAvatarIconListItem(text=option_text)
-                icon = IconLeftWidget(icon="checkbox-blank-circle-outline")
+            # Create dialog content
+            content = MDBoxLayout(
+                orientation="vertical",
+                spacing=10,
+                padding=20,
+                size_hint_y=None,
+                height=400
+            )
             
-            option_item.add_widget(icon)
-            options_list.add_widget(option_item)
-        
-        options_scroll.add_widget(options_list)
-        content.add_widget(options_scroll)
-        
-        # Explanation - remove [b] tags
-        if full_question.get("explanation"):
-            explanation_text = full_question["explanation"].replace('[b]', '').replace('[/b]', '')
-            explanation_label = MDLabel(
-                text=f"Explicação: {explanation_text}",
-                font_style="Body2",
-                halign="left",
+            # Question text
+            question_text = MDLabel(
+                text=full_question['question'],
                 size_hint_y=None,
                 height=100
             )
-            content.add_widget(explanation_label)
-        
-        # Create dialog
-        question_dialog = MDDialog(
-            title=f"Questão #{full_question.get('id', '')}",
-            type="custom",
-            content_cls=content,
-            buttons=[
-                MDFlatButton(
-                    text="Fechar",
-                    on_release=lambda x: question_dialog.dismiss()
+            content.add_widget(question_text)
+            
+            # Options
+            options_layout = MDBoxLayout(
+                orientation="vertical",
+                spacing=5,
+                size_hint_y=None,
+                height=150
+            )
+            
+            for i, option in enumerate(full_question['options']):
+                option_text = "✓ " if i == full_question['correct_answer'] else "   "
+                option_text += option
+                option_label = MDLabel(
+                    text=option_text,
+                    size_hint_y=None,
+                    height=30
                 )
-            ],
-            size_hint=(0.9, None)
-        )
-        self.dialogs.append(question_dialog)
-        question_dialog.open()
+                options_layout.add_widget(option_label)
+            
+            content.add_widget(options_layout)
+            
+            # Explanation
+            if 'explanation' in full_question and full_question['explanation']:
+                explanation_label = MDLabel(
+                    text=f"Explicação:\n{full_question['explanation']}",
+                    size_hint_y=None,
+                    height=150
+                )
+                content.add_widget(explanation_label)
+            
+            # Create and show dialog
+            dialog = MDDialog(
+                title="Detalhes da Questão",
+                type="custom",
+                content_cls=content,
+                buttons=[
+                    MDFlatButton(
+                        text="Fechar",
+                        on_release=lambda x: dialog.dismiss()
+                    )
+                ]
+            )
+            dialog.open()
+            self.dialogs.append(dialog)
+            
+        except Exception as e:
+            logger.error(f"Erro ao visualizar questão: {str(e)}")
+            self.show_error_dialog("Erro ao carregar detalhes da questão.")
     
     def show_error_dialog(self, text):
         """Show error dialog."""

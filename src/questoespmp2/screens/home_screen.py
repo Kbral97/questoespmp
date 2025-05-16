@@ -114,7 +114,7 @@ class HomeScreen(MDScreen):
         """Inicializa a tela."""
         super(HomeScreen, self).__init__(**kwargs)
         self.name = "home"
-        self.db = DatabaseManager()
+        self.db_manager = DatabaseManager()
         self.current_jobs = None
         self.api = None
         self.status_check_event = None
@@ -374,7 +374,7 @@ class HomeScreen(MDScreen):
     def update_statistics(self):
         """Update statistics labels with data from database."""
         try:
-            stats = self.db.get_statistics()
+            stats = self.db_manager.get_statistics()
             
             # Update total questions and accuracy
             total_questions = stats.get('total_questions', 0)

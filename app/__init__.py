@@ -1,6 +1,4 @@
 import os
-print("Diretório de trabalho atual:", os.getcwd())
-print("Caminho absoluto do banco:", os.path.abspath('instance/questoespmp.db'))
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
@@ -8,14 +6,13 @@ from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from .config import Config
 from dotenv import load_dotenv
+from .utils.logging_config import setup_logging
 
 # Carregar variáveis de ambiente do arquivo .env
 load_dotenv(verbose=True)
 
 # Configurar logging
-import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # Verificar se a chave da API está presente
 api_key = os.getenv('OPENAI_API_KEY')
@@ -56,13 +53,13 @@ def create_app(config_class=Config):
     app.config.from_object(config_class)
     
     # Configurar pasta de upload
-    app.config['UPLOAD_FOLDER'] = os.path.join(app.instance_path, 'uploads')
+    app.config['UPLOAD_FOLDER'] = os.path.join('data', 'uploads')
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'resumos'), exist_ok=True)
     
-    # Configuração do logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
     logger.info("Criando a aplicação...")
+    logger.info(f"Database path: {os.path.join(app.instance_path, 'questoespmp.db')}")
+    logger.info(f"Upload folder: {app.config['UPLOAD_FOLDER']}")
     
     # Inicialização das extensões
     db.init_app(app)
@@ -70,13 +67,13 @@ def create_app(config_class=Config):
     migrate.init_app(app, db)
     csrf.init_app(app)
     
-    # Registro dos blueprints
+    # Initialize database
+    with app.app_context():
+        from app.models import init_db
+        init_db()
+    
+    # Register blueprints
     from app.routes import main as main_blueprint
     app.register_blueprint(main_blueprint)
-    
-    # Inicializar o banco de dados
-    with app.app_context():
-        from app.database import init_db
-        init_db()
     
     return app

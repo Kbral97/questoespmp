@@ -17,14 +17,17 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import csv
-from app.database.db_manager import DatabaseManager
+from ..database.db_manager import DatabaseManager
 import random
-from app.models import Domain
+from app.models import Domain, AIModel
 from app import db
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Criar uma única instância do DatabaseManager
+db_manager = DatabaseManager()
 
 def get_training_file_path(filename):
     """Retorna o caminho do arquivo de treinamento"""
@@ -71,18 +74,25 @@ def list_available_models():
                     })
     return models
 
-def get_openai_client(api_key=None):
-    """Retorna um cliente OpenAI configurado"""
-    if api_key is None:
+def get_openai_client():
+    """
+    Cria e retorna uma instância do cliente OpenAI.
+    """
+    try:
         api_key = os.getenv('OPENAI_API_KEY')
-    if not api_key:
-        raise ValueError("API key não encontrada")
-    return OpenAI(api_key=api_key)
+        if not api_key:
+            raise ValueError("API key não encontrada nas variáveis de ambiente")
+        
+        client = OpenAI(api_key=api_key)
+        return client
+        
+    except Exception as e:
+        logger.error(f"Erro ao criar cliente OpenAI: {str(e)}")
+        raise
 
 def find_relevant_training_data(query: str, top_k: int = 3) -> List[Dict]:
     """Encontra os dados de treinamento mais relevantes para uma consulta"""
-    db = DatabaseManager()
-    training_data = db.get_all_training_data()
+    training_data = db_manager.get_all_training_data()
     
     if not training_data:
         return []
@@ -115,81 +125,153 @@ def get_enhanced_prompt(base_prompt: str, relevant_files: List[Dict]) -> str:
     
     return enhanced_prompt
 
-def generate_topic_summary(text: str, client: Any, api_key: str) -> Dict[str, Any]:
-    """Gera um resumo estruturado de um tópico usando GPT-4"""
+def generate_topic_summary(topic_text, client, api_key=None):
+    """
+    Gera um resumo do tópico usando a API do OpenAI.
+    """
     try:
-        logger.info("Iniciando geração de resumo para tópico")
+        logger.info("[SUMMARY] Iniciando geração de resumo")
+        logger.info(f"[SUMMARY] Tamanho do texto recebido: {len(topic_text)} caracteres")
         
-        # Buscar domínios do banco de dados
-        domains = Domain.query.all()
-        domain_names = [domain.name for domain in domains]
+        if not api_key:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("API key não encontrada")
         
-        prompt = f"""Analise o seguinte texto sobre gerenciamento de projetos e forneça um resumo estruturado:
+        # Inicializar cliente se não fornecido
+        if not client:
+            client = OpenAI(api_key=api_key)
+        
+        # Limpar e preparar o texto
+        cleaned_text = ' '.join(topic_text.split())  # Remove espaços extras
+        logger.info(f"[SUMMARY] Texto limpo: {cleaned_text[:200]}...")
+        
+        # Prompt para gerar o resumo
+        prompt = f"""
+        Analise o seguinte texto sobre um tópico do PMBOK e gere um resumo detalhado incluindo:
 
-{text}
+        1. Resumo Conciso:
+           - Um resumo claro e objetivo do tópico
+           - Principais conceitos e definições
+           - Contexto dentro do PMBOK
 
-Forneça a resposta no seguinte formato JSON:
-{{
-    "summary": "Um resumo conciso do tópico",
-    "key_points": [
+        2. Pontos-Chave:
+           - Cada ponto deve ser específico e detalhado
+           - Incluir explicações e justificativas
+           - Relacionar com outros conceitos do PMBOK quando relevante
+           - Destacar aspectos práticos e teóricos
+
+        3. Exemplos Práticos:
+           - Exemplos reais de aplicação
+           - Casos de uso comuns
+           - Situações do dia a dia do gerenciamento de projetos
+
+        4. Referências ao PMBOK:
+           - Seções específicas do PMBOK
+           - Relações com outros processos
+           - Áreas de conhecimento relacionadas
+
+        5. Domínios do PMP:
+           - Lista de domínios do PMP relacionados
+           - Explicação da relação com cada domínio
+           - Impacto nos processos de cada domínio
+
+        TEXTO:
+        {cleaned_text}
+        
+        Retorne no seguinte formato JSON:
         {{
-            "concept": "Nome do conceito",
-            "definition": "Definição clara e objetiva"
+            "summary": "resumo conciso e detalhado",
+            "key_points": [
+                {{
+                    "point": "ponto principal",
+                    "explanation": "explicação detalhada",
+                    "pmbok_relation": "relação com PMBOK"
+                }}
+            ],
+            "practical_examples": [
+                {{
+                    "example": "exemplo prático",
+                    "context": "contexto de aplicação",
+                    "lessons": "lições aprendidas"
+                }}
+            ],
+            "pmbok_references": [
+                {{
+                    "section": "seção do PMBOK",
+                    "description": "descrição da referência",
+                    "relevance": "relevância para o tópico"
+                }}
+            ],
+            "domains": [
+                {{
+                    "name": "nome do domínio",
+                    "relation": "relação com o tópico",
+                    "impact": "impacto nos processos"
+                }}
+            ]
         }}
-    ],
-    "practical_examples": [
-        "Exemplo prático 1",
-        "Exemplo prático 2"
-    ],
-    "pmbok_references": [
-        "Referência 1 do PMBOK",
-        "Referência 2 do PMBOK"
-    ],
-    "domains": [
-        "Nome do domínio 1",
-        "Nome do domínio 2"
-    ]
-}}
-
-IMPORTANTE:
-1. O campo 'domains' deve ser uma lista simples de strings, não uma lista dentro de outra lista
-2. Selecione apenas os domínios relevantes da seguinte lista: {domain_names}
-3. Mantenha o resumo conciso e focado nos aspectos mais importantes do tópico
-4. A resposta DEVE ser um JSON válido, não um texto livre
-5. O campo 'domains' é OBRIGATÓRIO e deve conter pelo menos um domínio da lista fornecida"""
-
-        logger.info("Enviando requisição para OpenAI")
+        """
+        
+        logger.info("[SUMMARY] Enviando requisição para OpenAI")
+        # Fazer a chamada à API
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos. Sua resposta DEVE ser um JSON válido e DEVE incluir o campo 'domains'."},
+                {"role": "system", "content": "Você é um especialista em PMP e está analisando tópicos do PMBOK. Seu objetivo é fornecer análises detalhadas e práticas que ajudem na compreensão e aplicação dos conceitos."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=2000
+            max_tokens=2000  # Aumentando o limite de tokens
         )
-
-        logger.info("Resposta recebida da OpenAI")
-        content = response.choices[0].message.content.strip()
         
+        logger.info("[SUMMARY] Resposta recebida da OpenAI")
+        
+        # Extrair e validar a resposta
         try:
+            content = response.choices[0].message.content
+            logger.info(f"[SUMMARY] Conteúdo da resposta: {content[:200]}...")
+            
             result = json.loads(content)
-            logger.info("JSON decodificado com sucesso")
+            logger.info("[SUMMARY] JSON decodificado com sucesso")
             
-            # Validar se o campo domains está presente e não vazio
-            if 'domains' not in result or not result['domains']:
-                logger.error("Campo 'domains' ausente ou vazio na resposta")
-                raise Exception("Resposta inválida: campo 'domains' ausente ou vazio")
-                
+            # Validar campos obrigatórios
+            required_fields = ['summary', 'key_points', 'practical_examples', 'pmbok_references', 'domains']
+            for field in required_fields:
+                if field not in result:
+                    logger.error(f"[SUMMARY] Campo obrigatório ausente: {field}")
+                    return None
+                if not result[field]:
+                    logger.error(f"[SUMMARY] Campo {field} está vazio")
+                    return None
+            
+            # Validar estrutura dos pontos-chave
+            if not isinstance(result['key_points'], list):
+                logger.error("[SUMMARY] Formato inválido para pontos-chave")
+                return None
+            
+            logger.info("[SUMMARY] Resumo gerado com sucesso")
+            logger.info(f"[SUMMARY] Número de pontos-chave: {len(result['key_points'])}")
+            logger.info(f"[SUMMARY] Número de exemplos práticos: {len(result['practical_examples'])}")
+            logger.info(f"[SUMMARY] Número de referências PMBOK: {len(result['pmbok_references'])}")
+            logger.info(f"[SUMMARY] Número de domínios: {len(result['domains'])}")
+            
             return result
-        except json.JSONDecodeError as e:
-            logger.error(f"Erro ao decodificar JSON: {str(e)}")
-            logger.error(f"Conteúdo recebido: {content}")
-            raise Exception("Erro ao processar resposta da API")
             
+        except json.JSONDecodeError as e:
+            logger.error(f"[SUMMARY] Erro ao decodificar JSON da resposta: {str(e)}")
+            logger.error(f"[SUMMARY] Conteúdo da resposta: {content}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"[SUMMARY] Erro ao processar resposta da API: {str(e)}")
+            logger.error("[SUMMARY] Stack trace:", exc_info=True)
+            return None
+        
     except Exception as e:
-        logger.error(f"Erro ao gerar resumo: {str(e)}")
-        raise
+        logger.error(f"[SUMMARY] Erro ao gerar resumo: {str(e)}")
+        logger.error("[SUMMARY] Stack trace:", exc_info=True)
+        return None
 
 def get_least_used_summaries(topic: str, num_summaries: int = 2) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
@@ -206,8 +288,7 @@ def get_least_used_summaries(topic: str, num_summaries: int = 2) -> Tuple[Dict[s
     
     try:
         # Buscar todas as questões do tópico
-        db = DatabaseManager()
-        questions = db.get_questions_by_topic(topic)
+        questions = db_manager.get_questions_by_topic(topic)
         
         # Contar uso de cada resumo
         summary_usage = {}
@@ -218,7 +299,7 @@ def get_least_used_summaries(topic: str, num_summaries: int = 2) -> Tuple[Dict[s
                 summary_usage[summary_id] = summary_usage.get(summary_id, 0) + 1
         
         # Buscar todos os resumos disponíveis
-        all_summaries = db.get_all_summaries()
+        all_summaries = db_manager.get_all_summaries()
         
         # Ordenar resumos por uso (menos usados primeiro)
         sorted_summaries = sorted(
@@ -244,105 +325,215 @@ def get_least_used_summaries(topic: str, num_summaries: int = 2) -> Tuple[Dict[s
         logger.error(f"[SUMMARIES] Erro ao selecionar resumos: {str(e)}")
         return None, None
 
-def generate_questions(topic: str, num_questions: int, api_key: str) -> List[Dict[str, str]]:
+def generate_questions(topic, num_questions=5, api_key=None, summary=None):
     """
-    Gera questões usando a API da OpenAI em 3 etapas:
-    1. Geração da pergunta
-    2. Geração da resposta e justificativa
-    3. Geração dos distratores
-    """
-    logger.info(f"[GENERATION] Iniciando geração de {num_questions} questões para tópico {topic}")
-    questions = []
-    retries = 3
+    Gera questões sobre um tópico usando a API do OpenAI.
     
+    Args:
+        topic: O tópico para gerar questões
+        num_questions: Número de questões a gerar
+        api_key: Chave da API OpenAI
+        summary: Resumo do tópico (opcional)
+    """
     try:
+        logger.info(f"[GENERATE] Iniciando geração de {num_questions} questões sobre {topic}")
+        
+        if not api_key:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                raise ValueError("API key não encontrada")
+        
+        # Inicializar cliente
         client = OpenAI(api_key=api_key)
         
-        for i in range(num_questions):
-            logger.info(f"[GENERATION] Gerando questão {i+1}/{num_questions}")
+        # Buscar modelos padrão do banco de dados
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT model_id, model_type 
+                FROM ai_models 
+                WHERE is_default = 1
+            ''')
+            default_models = cursor.fetchall()
             
-            # Selecionar resumos menos usados
-            topic_summary, related_summary = get_least_used_summaries(topic)
-            if not topic_summary:
-                logger.error("[GENERATION] Não foi possível obter resumos")
-                continue
+            if not default_models:
+                logger.error("[GENERATE] Nenhum modelo padrão encontrado no banco de dados")
+                return None
                 
-            logger.info(f"[GENERATION] Usando resumos: {topic_summary['id']} e {related_summary['id'] if related_summary else 'None'}")
+            # Mapear modelos por tipo
+            model_map = {model[1]: model[0] for model in default_models}
+            logger.info(f"[GENERATE] Modelos padrão encontrados: {model_map}")
             
-            # Etapa 1: Gerar pergunta
+            # Validar se todos os tipos necessários estão presentes
+            required_types = ['question', 'answer', 'distractor']
+            missing_types = [t for t in required_types if t not in model_map]
+            if missing_types:
+                logger.error(f"[GENERATE] Tipos de modelo ausentes: {missing_types}")
+                return None
+        
+        # Se não tiver resumo, busca no banco
+        if not summary:
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT summary, key_points, practical_examples, pmbok_references
+                    FROM topic_summaries 
+                    WHERE topic = ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (topic,))
+                summary_data = cursor.fetchone()
+                
+                if not summary_data:
+                    logger.warning(f"[GENERATE] Nenhum resumo encontrado para o tópico {topic}")
+                    return None
+                
+                summary, key_points, practical_examples, pmbok_references = summary_data
+        else:
+            # Se tiver resumo, usa ele e busca os outros dados
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT key_points, practical_examples, pmbok_references
+                    FROM topic_summaries 
+                    WHERE topic = ?
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (topic,))
+                summary_data = cursor.fetchone()
+                
+                if summary_data:
+                    key_points, practical_examples, pmbok_references = summary_data
+                else:
+                    key_points = practical_examples = pmbok_references = None
+        
+        # Preparar o contexto combinando o resumo e pontos-chave
+        context = f"""
+        RESUMO DO TÓPICO:
+        {summary}
+        
+        PONTOS-CHAVE:
+        {json.loads(key_points) if key_points else 'Nenhum ponto-chave disponível'}
+        
+        EXEMPLOS PRÁTICOS:
+        {json.loads(practical_examples) if practical_examples else 'Nenhum exemplo prático disponível'}
+        
+        REFERÊNCIAS PMBOK:
+        {json.loads(pmbok_references) if pmbok_references else 'Nenhuma referência PMBOK disponível'}
+        """
+        
+        # Gerar questões usando os modelos treinados
+        questions = []
+        for i in range(num_questions):
+            # 1. Gerar cenário e pergunta
             question_data = generate_question_with_ai(
                 topic=topic,
-                subtopic=topic,  # Usando o tópico como subtópico já que não usamos mais subtópicos
+                subtopic=None,
                 client=client,
                 api_key=api_key,
-                topic_summary=topic_summary,
-                related_summary=related_summary
+                model=model_map['question'],
+                topic_summary={'summary': summary, 'key_points': json.loads(key_points) if key_points else []},
+                related_summary=None
             )
             
             if not question_data:
-                logger.error(f"[GENERATION] Falha ao gerar pergunta para questão {i+1}")
+                logger.error("[GENERATE] Falha ao gerar pergunta")
                 continue
-
-            # Etapa 2: Gerar resposta e justificativa
+                
+            # 2. Gerar resposta correta
             answer_data = generate_answer_with_ai(
                 question_data=question_data,
                 topic=topic,
-                subtopic=topic,
+                subtopic=None,
                 client=client,
                 api_key=api_key,
-                topic_summary=topic_summary,
-                related_summary=related_summary
+                model=model_map['answer'],
+                topic_summary={'summary': summary, 'key_points': json.loads(key_points) if key_points else []},
+                related_summary=None
             )
             
             if not answer_data:
-                logger.error(f"[GENERATION] Falha ao gerar resposta para questão {i+1}")
+                logger.error("[GENERATE] Falha ao gerar resposta")
                 continue
-
-            # Etapa 3: Gerar distratores
+                
+            # 3. Gerar distratores
             distractors_data, warnings = generate_distractors(
                 question_data=question_data,
                 answer_data=answer_data,
                 topic=topic,
-                subtopic=topic,
+                subtopic=None,
                 client=client,
                 api_key=api_key,
-                topic_summary=topic_summary,
-                related_summary=related_summary
+                model=model_map['distractor'],
+                topic_summary={'summary': summary, 'key_points': json.loads(key_points) if key_points else []},
+                related_summary=None
             )
             
             if not distractors_data:
-                logger.error(f"[GENERATION] Falha ao gerar distratores para questão {i+1}")
+                logger.error("[GENERATE] Falha ao gerar distratores")
                 continue
-
-            # Montar questão completa
+                
+            # Combinar todas as alternativas
+            all_options = distractors_data['distractors'] + [answer_data['correct_answer']]
+            # Embaralhar as alternativas
+            random.shuffle(all_options)
+            # Encontrar o índice da resposta correta
+            correct_index = all_options.index(answer_data['correct_answer'])
+            
+            # Criar questão completa com todos os dados de debug
             question = {
-                'question': question_data['full_question'],
-                'options': distractors_data['distractors'] + [answer_data['correct_answer']],
-                'correct_answer': len(distractors_data['distractors']),  # Índice da resposta correta
+                'question': question_data['question'],
+                'options': all_options,
+                'correct_answer': correct_index,
                 'explanation': answer_data['justification'],
                 'topic': topic,
-                'created_at': datetime.now().isoformat(),
-                'metadata': {
-                    'pmbok_references': answer_data['pmbok_references'],
-                    'practical_examples': answer_data['practical_examples'],
-                    'warnings': warnings + distractors_data['warnings'],
-                    'used_summaries': [topic_summary['id']] + ([related_summary['id']] if related_summary else [])
+                'debug_data': {
+                    'models_used': {
+                        'question': model_map['question'],
+                        'answer': model_map['answer'],
+                        'distractor': model_map['distractor']
+                    },
+                    'topic_summary': {
+                        'summary': summary,
+                        'key_points': json.loads(key_points) if key_points else [],
+                        'practical_examples': json.loads(practical_examples) if practical_examples else [],
+                        'pmbok_references': json.loads(pmbok_references) if pmbok_references else []
+                    },
+                    'question_generation': {
+                        'prompt': question_data.get('prompt'),
+                        'raw_response': question_data.get('raw_response'),
+                        'scenario': question_data.get('scenario'),
+                        'full_question': question_data.get('full_question')
+                    },
+                    'answer_generation': {
+                        'prompt': answer_data.get('prompt'),
+                        'raw_response': answer_data.get('raw_response'),
+                        'correct_answer': answer_data.get('correct_answer'),
+                        'justification': answer_data.get('justification'),
+                        'pmbok_references': answer_data.get('pmbok_references'),
+                        'practical_examples': answer_data.get('practical_examples')
+                    },
+                    'distractors_generation': {
+                        'prompt': distractors_data.get('prompt'),
+                        'raw_response': distractors_data.get('raw_response'),
+                        'distractors': distractors_data.get('distractors'),
+                        'warnings': warnings
+                    }
                 }
             }
             
-            # Validar questão
-            if validate_question_quality(question):
-                questions.append(question)
-                logger.info(f"[GENERATION] Questão {i+1} gerada com sucesso")
-            else:
-                logger.error(f"[GENERATION] Questão {i+1} falhou na validação")
-
-        logger.info(f"[GENERATION] Geração concluída. Total de questões geradas: {len(questions)}")
+            questions.append(question)
+            
+        if not questions:
+            logger.error("[GENERATE] Nenhuma questão foi gerada com sucesso")
+            return None
+            
+        logger.info(f"[GENERATE] {len(questions)} questões geradas com sucesso")
         return questions
-
+        
     except Exception as e:
-        logger.error(f"[GENERATION] Erro ao gerar questões: {str(e)}")
-        raise
+        logger.error(f"[GENERATE] Erro ao gerar questões: {str(e)}")
+        return None
 
 def format_training_data(questions):
     """Formata as questões para treinamento"""
@@ -359,7 +550,7 @@ def format_training_data(questions):
 
 def tune_model(training_data, api_key=None, model_name="gpt-3.5-turbo"):
     """Ajusta um modelo com os dados de treinamento"""
-    client = get_openai_client(api_key)
+    client = get_openai_client()
     
     # Formatar dados para treinamento
     formatted_data = format_training_data(training_data)
@@ -384,7 +575,7 @@ def tune_model(training_data, api_key=None, model_name="gpt-3.5-turbo"):
 
 def get_tuning_status(job_id, api_key=None):
     """Obtém o status do ajuste do modelo"""
-    client = get_openai_client(api_key)
+    client = get_openai_client()
     try:
         response = client.fine_tuning.jobs.retrieve(job_id)
         return {
@@ -484,7 +675,7 @@ Formato esperado:
 
         logger.info("[QUESTION_AI] Enviando requisição para OpenAI")
         response = client.chat.completions.create(
-            model=model or "gpt-3.5-turbo",
+            model=model,  # Usando o modelo treinado passado como parâmetro
             messages=[
                 {"role": "system", "content": "Você é um especialista em criar cenários e questões de gerenciamento de projetos."},
                 {"role": "user", "content": prompt}
@@ -590,7 +781,7 @@ A resposta DEVE seguir EXATAMENTE este formato JSON:
 
         logger.info("[ANSWER_AI] Enviando requisição para OpenAI")
         response = client.chat.completions.create(
-            model=model or "gpt-3.5-turbo",
+            model=model,  # Usando o modelo treinado passado como parâmetro
             messages=[
                 {"role": "system", "content": "Você é um especialista em gerenciamento de projetos com profundo conhecimento do PMBOK e certificação PMP."},
                 {"role": "user", "content": prompt}
@@ -724,7 +915,7 @@ Formato esperado:
 
         logger.info("[DISTRACTORS] Enviando requisição para OpenAI")
         response = client.chat.completions.create(
-            model=model or "gpt-3.5-turbo",
+            model=model,  # Usando o modelo treinado passado como parâmetro
             messages=[
                 {"role": "system", "content": "Você é um especialista em criar alternativas plausíveis para questões de gerenciamento de projetos."},
                 {"role": "user", "content": prompt}
@@ -773,3 +964,74 @@ Formato esperado:
     except Exception as e:
         logger.error(f"[DISTRACTORS] Erro ao gerar distratores: {str(e)}")
         return None, [f"Erro ao gerar distratores: {str(e)}"]
+
+def process_chunks_with_ai(chunks):
+    """
+    Processa chunks de texto usando a API do OpenAI.
+    """
+    try:
+        logger.info("[PROCESS] Iniciando processamento de chunks")
+        
+        api_key = os.getenv('OPENAI_API_KEY')
+        if not api_key:
+            raise ValueError("API key não encontrada")
+        
+        # Inicializar cliente
+        client = OpenAI(api_key=api_key)
+        
+        processed_chunks = []
+        
+        for chunk in chunks:
+            try:
+                # Prompt para processar o chunk
+                prompt = f"""
+                Analise o seguinte texto e extraia:
+                1. Conceitos principais
+                2. Palavras-chave
+                3. Relações com outros tópicos do PMBOK
+                
+                TEXTO:
+                {chunk['content']}
+                
+                Retorne no seguinte formato JSON:
+                {{
+                    "main_concepts": ["conceito 1", "conceito 2", ...],
+                    "keywords": ["palavra 1", "palavra 2", ...],
+                    "related_topics": ["tópico 1", "tópico 2", ...]
+                }}
+                """
+                
+                # Fazer a chamada à API
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": "Você é um especialista em PMP analisando textos do PMBOK."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7
+                )
+                
+                # Processar resposta
+                content = response.choices[0].message.content
+                result = json.loads(content)
+                
+                # Adicionar resultado processado
+                processed_chunk = {
+                    'id': chunk['id'],
+                    'content': chunk['content'],
+                    'processed_data': result
+                }
+                processed_chunks.append(processed_chunk)
+                
+                logger.info(f"[PROCESS] Chunk {chunk['id']} processado com sucesso")
+                
+            except Exception as e:
+                logger.error(f"[PROCESS] Erro ao processar chunk {chunk['id']}: {str(e)}")
+                continue
+        
+        logger.info(f"[PROCESS] {len(processed_chunks)} chunks processados com sucesso")
+        return processed_chunks
+        
+    except Exception as e:
+        logger.error(f"[PROCESS] Erro ao processar chunks: {str(e)}")
+        return None

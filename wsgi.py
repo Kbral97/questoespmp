@@ -1,17 +1,9 @@
 import os
-import logging
 import sys
-
-# Adicionar o diretório src ao PYTHONPATH
-src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
-sys.path.append(src_path)
+from app.utils.logging_config import setup_logging
 
 # Configurar logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # Log environment variables
 logger.info("Environment variables:")
@@ -24,7 +16,6 @@ os.environ['KIVY_NO_ARGS'] = '1'
 # Desabilita a interface gráfica do Kivy
 os.environ['KIVY_NO_CONSOLELOG'] = '1'
 os.environ['KIVY_NO_FILELOG'] = '1'
-os.environ['KIVY_NO_ARGS'] = '1'
 os.environ['KIVY_NO_CONFIG'] = '1'
 os.environ['KIVY_NO_ENV_CONFIG'] = '1'
 
@@ -37,6 +28,5 @@ app = create_app()
 
 if __name__ == "__main__":
     logger.info("Iniciando o servidor Flask...")
-    logger.info(f"Database path: {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance', 'questoespmp.db')}")
     logger.info(f"Servidor rodando em: http://0.0.0.0:5000")
     app.run(debug=True, host='0.0.0.0', port=5000) 

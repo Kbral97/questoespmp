@@ -32,3 +32,49 @@ def get_topic_summary(self, summary_id: int) -> Optional[TopicSummary]:
         logger.error(f"[GET-SUMMARY] Erro ao buscar resumo: {str(e)}")
         logger.error("[GET-SUMMARY] Stack trace:", exc_info=True)
         raise 
+
+def init_db():
+    """Inicializa o banco de dados criando as tabelas necessárias."""
+    try:
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Log da estrutura atual da tabela
+            cursor.execute("PRAGMA table_info(topic_summaries)")
+            columns = cursor.fetchall()
+            logger.info(f"[DB] Estrutura atual da tabela topic_summaries: {columns}")
+            
+            # Cria a tabela topic_summaries se não existir
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS topic_summaries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    document_title TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    key_points TEXT,
+                    domains TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(document_title, topic)
+                )
+            ''')
+            
+            # Log da estrutura após criação/verificação
+            cursor.execute("PRAGMA table_info(topic_summaries)")
+            columns = cursor.fetchall()
+            logger.info(f"[DB] Estrutura final da tabela topic_summaries: {columns}")
+            
+            # Verificar se existem registros na tabela
+            cursor.execute("SELECT COUNT(*) FROM topic_summaries")
+            count = cursor.fetchone()[0]
+            logger.info(f"[DB] Número de registros na tabela topic_summaries: {count}")
+            
+            # Listar alguns registros para debug
+            cursor.execute("SELECT document_title, topic FROM topic_summaries LIMIT 5")
+            sample_records = cursor.fetchall()
+            logger.info(f"[DB] Amostra de registros na tabela topic_summaries: {sample_records}")
+            
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[DB] Erro ao inicializar banco de dados: {str(e)}")
+        logger.error(f"[DB] Stack trace: {traceback.format_exc()}")
+        raise 

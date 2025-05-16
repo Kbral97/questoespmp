@@ -2,6 +2,9 @@
 
 {% block head %}
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <!-- Material Design Components -->
+    <link href="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.css" rel="stylesheet">
+    <script src="https://unpkg.com/material-components-web@latest/dist/material-components-web.min.js"></script>
     <style>
         .ai-section {
             margin: 16px 0;
@@ -158,12 +161,12 @@
 </div>
 
 <!-- Progress Dialog -->
-<div class="mdc-dialog" id="progressDialog">
+<div class="mdc-dialog" id="progressDialog" role="dialog" aria-modal="true" aria-labelledby="progressDialogTitle">
     <div class="mdc-dialog__container">
         <div class="mdc-dialog__surface">
-            <h2 class="mdc-dialog__title">Gerando Questões</h2>
+            <h2 class="mdc-dialog__title" id="progressDialogTitle">Gerando Questões</h2>
             <div class="mdc-dialog__content">
-                <div class="mdc-linear-progress mdc-linear-progress--indeterminate" id="progressBar">
+                <div class="mdc-linear-progress mdc-linear-progress--indeterminate" id="progressBar" role="progressbar" aria-label="Progresso" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                     <div class="mdc-linear-progress__buffer">
                         <div class="mdc-linear-progress__buffer-bar"></div>
                         <div class="mdc-linear-progress__buffer-dots"></div>
@@ -191,6 +194,12 @@
                     </div>
                 </div>
             </div>
+            <div class="mdc-dialog__actions">
+                <button type="button" class="mdc-button mdc-dialog__button" data-mdc-dialog-action="cancel">
+                    <div class="mdc-button__ripple"></div>
+                    <span class="mdc-button__label">Cancelar</span>
+                </button>
+            </div>
         </div>
     </div>
     <div class="mdc-dialog__scrim"></div>
@@ -207,97 +216,187 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('Inicializando componentes...');
-    
-    // Inicializar componentes MDC
-    const textFields = document.querySelectorAll('.mdc-text-field');
-    textFields.forEach(textField => mdc.textField.MDCTextField.attachTo(textField));
+// Inicializar MDC
+const MDCSelect = mdc.select.MDCSelect;
+const MDCMenu = mdc.menu.MDCMenu;
+const MDCDialog = mdc.dialog.MDCDialog;
+const MDCLinearProgress = mdc.linearProgress.MDCLinearProgress;
 
-    // Log para verificar se o MDC Dialog está disponível
-    console.log('MDC Dialog disponível:', typeof mdc.dialog !== 'undefined');
+// Função para carregar os domínios
+function loadDomains() {
+    console.log('[LOAD-DOMAINS] Iniciando carregamento de domínios');
     
-    // Verificar se o elemento do diálogo existe
-    const progressDialogElement = document.getElementById('progressDialog');
-    console.log('Elemento do diálogo encontrado:', progressDialogElement !== null);
-    
-    // Tentar inicializar o diálogo antecipadamente
-    try {
-        window.progressDialog = new mdc.dialog.MDCDialog(progressDialogElement);
-        console.log('Diálogo inicializado com sucesso');
-    } catch (error) {
-        console.error('Erro ao inicializar diálogo:', error);
-    }
-
-    // Inicializar select com referência global
-    const topicSelect = document.querySelector('.mdc-select');
-    console.log('Elemento select encontrado:', topicSelect);
-    
-    window.mdcTopicSelect = mdc.select.MDCSelect.attachTo(topicSelect);
-    console.log('Select MDC inicializado');
-    
-    window.mdcTopicSelect.listen('MDCSelect:change', () => {
-        console.log('Select alterado. Novo valor:', window.mdcTopicSelect.value);
-    });
-
-    // Carregar domínios do banco de dados
     fetch('/api/domains')
-        .then(response => response.json())
+        .then(response => {
+            console.log('[LOAD-DOMAINS] Resposta recebida:', response.status);
+            return response.json();
+        })
         .then(data => {
+            console.log('[LOAD-DOMAINS] Dados recebidos:', data);
+            
             if (data.success) {
                 const domainList = document.getElementById('domainList');
+                console.log('[LOAD-DOMAINS] Elemento domainList encontrado:', !!domainList);
+                
+                if (!domainList) {
+                    console.error('[LOAD-DOMAINS] Elemento domainList não encontrado no DOM');
+                    return;
+                }
+                
+                domainList.innerHTML = ''; // Limpar lista atual
+                console.log('[LOAD-DOMAINS] Lista de domínios limpa');
+                
                 data.domains.forEach(domain => {
+                    console.log('[LOAD-DOMAINS] Criando item para domínio:', domain);
+                    
                     const li = document.createElement('li');
                     li.className = 'mdc-list-item';
-                    li.setAttribute('data-value', domain.name);
+                    li.setAttribute('data-value', domain.id);
                     li.setAttribute('role', 'option');
-                    li.innerHTML = `
-                        <span class="mdc-list-item__ripple"></span>
-                        <span class="mdc-list-item__text">${domain.name}</span>
-                    `;
+                    
+                    const span = document.createElement('span');
+                    span.className = 'mdc-list-item__ripple';
+                    
+                    const text = document.createElement('span');
+                    text.className = 'mdc-list-item__text';
+                    text.textContent = domain.name;
+                    
+                    li.appendChild(span);
+                    li.appendChild(text);
                     domainList.appendChild(li);
                 });
                 
-                // Inicializar o select APÓS adicionar os itens
-                const select = new mdc.select.MDCSelect(document.querySelector('.mdc-select'));
-                select.listen('MDCSelect:change', () => {
-                    console.log(`Selected domain: ${select.value}`);
-                });
+                console.log('[LOAD-DOMAINS] Total de itens adicionados:', domainList.children.length);
                 
-                // Armazenar a referência do select globalmente
-                window.mdcTopicSelect = select;
+                // Inicializar o MDC Select
+                const select = document.querySelector('.mdc-select');
+                console.log('[LOAD-DOMAINS] Elemento select encontrado:', !!select);
+                
+                if (select) {
+                    try {
+                        // Destruir instância anterior se existir
+                        if (window.mdcSelect) {
+                            window.mdcSelect.destroy();
+                        }
+                        
+                        // Criar nova instância
+                        window.mdcSelect = new MDCSelect(select);
+                        console.log('[LOAD-DOMAINS] MDC Select inicializado com sucesso');
+                        
+                        // Adicionar listener para mudanças
+                        window.mdcSelect.listen('MDCSelect:change', () => {
+                            console.log(`[LOAD-DOMAINS] Domínio selecionado: ${window.mdcSelect.value}`);
+                        });
+                        
+                        // Inicializar o menu
+                        const menuEl = select.querySelector('.mdc-menu');
+                        if (menuEl) {
+                            console.log('[LOAD-DOMAINS] Elemento menu encontrado:', menuEl);
+                            const menu = new MDCMenu(menuEl);
+                            console.log('[LOAD-DOMAINS] Menu criado:', menu);
+                            
+                            // Configurar posicionamento do menu
+                            menu.setFixedPosition(false); // Desativar posição fixa
+                            menu.setAnchorElement(select); // Ancorar ao elemento select
+                            menu.setAnchorCorner(8); // TOP_START = 8
+                            menu.setAnchorMargin({top: 0, right: 0, bottom: 0, left: 0});
+                            console.log('[LOAD-DOMAINS] Menu inicializado com sucesso');
+                            
+                            // Forçar atualização do menu
+                            menu.open = false;
+                            menu.close = false;
+                            
+                            // Vincular o menu ao select
+                            window.mdcSelect.menu = menu;
+                            console.log('[LOAD-DOMAINS] Menu vinculado ao select');
+                        } else {
+                            console.error('[LOAD-DOMAINS] Elemento menu não encontrado');
+                        }
+                        
+                    } catch (error) {
+                        console.error('[LOAD-DOMAINS] Erro ao inicializar MDC Select:', error);
+                    }
+                } else {
+                    console.error('[LOAD-DOMAINS] Elemento select não encontrado no DOM');
+                }
             } else {
-                console.error('Erro ao carregar domínios:', data.error);
+                console.error('[LOAD-DOMAINS] Erro na resposta:', data.error);
             }
         })
         .catch(error => {
-            console.error('Erro ao carregar domínios:', error);
+            console.error('[LOAD-DOMAINS] Erro ao carregar domínios:', error);
         });
+}
 
+// Chamar loadDomains quando o documento estiver pronto
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('[INIT] Documento carregado, inicializando componentes...');
+    
+    // Inicializar componentes MDC
+    const selects = document.querySelectorAll('.mdc-select');
+    selects.forEach(select => {
+        try {
+            const mdcSelect = new MDCSelect(select);
+            console.log('[INIT] Select inicializado:', select.id || 'unnamed');
+            
+            // Inicializar o menu para cada select
+            const menuEl = select.querySelector('.mdc-menu');
+            if (menuEl) {
+                const menu = new MDCMenu(menuEl);
+                menu.setFixedPosition(true);
+                menu.setAnchorCorner(1); // BOTTOM_START = 1
+                menu.setAnchorMargin({top: 0, right: 0, bottom: 0, left: 0});
+                console.log('[INIT] Menu inicializado para select:', select.id || 'unnamed');
+            }
+        } catch (error) {
+            console.error('[INIT] Erro ao inicializar select:', error);
+        }
+    });
+    
+    const textFields = document.querySelectorAll('.mdc-text-field');
+    textFields.forEach(field => {
+        try {
+            new mdc.textField.MDCTextField(field);
+        } catch (error) {
+            console.error('Erro ao inicializar text field:', error);
+        }
+    });
+    
+    // Inicializar o diálogo de progresso
+    const progressDialogElement = document.getElementById('progressDialog');
+    if (progressDialogElement) {
+        try {
+            window.progressDialog = new MDCDialog(progressDialogElement);
+            console.log('Diálogo inicializado com sucesso');
+            
+            // Inicializar a barra de progresso
+            const progressBarElement = document.getElementById('progressBar');
+            if (progressBarElement) {
+                window.progressBar = new MDCLinearProgress(progressBarElement);
+                console.log('Barra de progresso inicializada com sucesso');
+            }
+        } catch (error) {
+            console.error('Erro ao inicializar diálogo:', error);
+        }
+    }
+    
+    // Carregar domínios após inicializar os componentes
+    setTimeout(loadDomains, 100);
+});
+    
     // Manipular envio do formulário
     const form = document.getElementById('generateForm');
-    form.addEventListener('submit', function(e) {
+    form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        // Verificar se o select está inicializado
-        if (!window.mdcTopicSelect) {
-            console.error('Select não inicializado');
-            alert('Erro: Componente de seleção não inicializado corretamente. Por favor, recarregue a página.');
+    const domain = document.querySelector('.mdc-select__selected-text').textContent;
+        const numQuestions = document.getElementById('numQuestions').value;
+        
+    if (!domain) {
+        alert('Por favor, selecione um domínio.');
             return;
         }
         
-        const topic = window.mdcTopicSelect.value;
-        console.log('Tópico no envio:', topic);
-
-        const numQuestions = document.getElementById('numQuestions').value;
-
-        // Validar campos antes de enviar
-        if (!topic) {
-            console.log('Tópico não selecionado ou valor inválido');
-            alert('Por favor, selecione um tópico.');
-            return;
-        }
-
         if (!numQuestions || numQuestions < 1 || numQuestions > 20) {
             alert('O número de questões deve estar entre 1 e 20.');
             return;
@@ -307,7 +406,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!window.progressDialog) {
             console.error('Diálogo não inicializado');
             try {
-                window.progressDialog = new mdc.dialog.MDCDialog(document.getElementById('progressDialog'));
+            window.progressDialog = new MDCDialog(document.getElementById('progressDialog'));
                 console.log('Diálogo inicializado no submit');
             } catch (error) {
                 console.error('Erro ao inicializar diálogo no submit:', error);
@@ -344,656 +443,97 @@ document.addEventListener('DOMContentLoaded', function() {
                 'X-CSRFToken': csrfToken
             },
             body: JSON.stringify({
-                topic: topic,
+            domain: domain,
                 num_questions: parseInt(numQuestions)
             })
         })
-        .then(response => {
-            if (!response.ok) {
-                if (response.status === 401) {
-                    window.location.href = '/login';
-                    throw new Error('Sessão expirada. Por favor, faça login novamente.');
-                }
-                return response.json().then(data => {
-                    throw new Error(data.error || 'Erro ao gerar questões');
-                });
-            }
-            updateProgress(2, 'Processando resultados...');
-            return response.json();
-        })
-        .then(data => {
-            if (data.error) {
-                throw new Error(data.error);
+        .then(response => response.json())
+        .then(result => {
+            if (result.error) {
+                throw new Error(result.error);
             }
             
-            // Armazenar as questões geradas globalmente
-            window.generatedQuestions = data.questions;
-            
-            // Mostrar questões geradas
-            const questionsContainer = document.getElementById('generatedQuestions');
-            questionsContainer.innerHTML = '';
-            
-            data.questions.forEach((question, index) => {
-                const questionCard = document.createElement('div');
-                questionCard.className = 'mdc-card question-card';
-                questionCard.style.marginBottom = '1rem';
-                questionCard.style.padding = '1rem';
-                
-                const questionContent = createQuestionHTML(question, index);
-                questionCard.innerHTML = questionContent;
-                questionsContainer.appendChild(questionCard);
-            });
-            
-            safeCloseDialog();
-            document.getElementById('resultsSection').style.display = 'block';
-            document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
+            updateProgress(100, 'Questões geradas com sucesso!');
+            setTimeout(() => {
+                safeCloseDialog();
+                showGeneratedQuestions(result.questions);
+            }, 1000);
         })
         .catch(error => {
-            safeCloseDialog();
-            alert('Erro ao gerar questões: ' + error.message);
-        });
+            console.error('Erro ao gerar questões:', error);
+            updateProgress(0, `Erro: ${error.message}`);
+            setTimeout(safeCloseDialog, 2000);
     });
 });
 
-// Função para montar o HTML da questão
-function createQuestionHTML(question, index) {
-    const hasGenerationDetails = question.question_prompt_id && 
-        question.answer_prompt_id && 
-        question.distractors_prompt_id;
-    
-    const hasDistractorIssues = question.metadata && question.metadata.warnings && question.metadata.warnings.length > 0;
-
-    return `
-        <div class="question-card mdc-card" style="margin-bottom: 1rem; padding: 1rem;" id="question-${index}">
-            <div class="question-header">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div class="d-flex align-items-center">
-                        <h3 class="mdc-typography--headline6" style="margin-right: 16px;">Questão ${index + 1}</h3>
-                        ${hasDistractorIssues ? `
-                            <div class="mdc-chip warning-chip" title="Problemas com distratores">
-                                <i class="material-icons" style="color: #ff9800; margin-right: 4px;">warning</i>
-                                <span class="mdc-chip__text">Problemas com distratores</span>
-                            </div>
-                        ` : ''}
-                    </div>
-                    <div>
-                        <button class="mdc-button mdc-button--icon" onclick="toggleAnswer(${index})">
-                            <span class="mdc-button__ripple"></span>
-                            <i class="material-icons mdc-button__icon">visibility</i>
-                        </button>
-                        <button class="mdc-button mdc-button--icon" onclick="toggleQuestionDetails(${index})">
-                            <span class="mdc-button__ripple"></span>
-                            <i class="material-icons mdc-button__icon">add</i>
-                        </button>
-                        <button class="mdc-button mdc-button--icon" onclick="deleteQuestion(${index})" title="Excluir questão">
-                            <span class="mdc-button__ripple"></span>
-                            <i class="material-icons mdc-button__icon" style="color: #dc3545;">delete</i>
-                        </button>
-                    </div>
-                </div>
-                <div class="mdc-chip-set">
-                    <div class="mdc-chip">
-                        <div class="mdc-chip__text">Tópico: ${question.topic}</div>
-                    </div>
-                </div>
-                ${hasDistractorIssues ? `
-                    <div class="distractor-issues" style="margin-top: 8px; padding: 8px; background-color: #fff3e0; border-radius: 4px;">
-                        <p class="mdc-typography--body2" style="color: #e65100; margin: 0;">
-                            <i class="material-icons" style="font-size: 16px; vertical-align: text-bottom;">info</i>
-                            Problemas encontrados:
-                        </p>
-                        <ul style="margin: 4px 0 0 0; padding-left: 24px;">
-                            ${question.metadata.warnings.map(warning => `
-                                <li class="mdc-typography--body2" style="color: #e65100;">${warning}</li>
-                            `).join('')}
-                        </ul>
-                    </div>
-                ` : ''}
-            </div>
-            <div class="question-body">
-                <p class="mdc-typography--body1">${question.question}</p>
-                <div class="mdc-list">
-                    ${question.options.map((opt, idx) => `
-                        <div class="mdc-list-item">
-                            <span class="mdc-list-item__ripple"></span>
-                            <span class="mdc-list-item__text">${String.fromCharCode(65 + idx)}. ${opt}</span>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-            <div class="answer-section" id="answerSection${index}" style="display: none;">
-                <h4 class="mdc-typography--subtitle1">Resposta e Justificativa</h4>
-                <div class="mdc-typography--body1">
-                    <p><strong>Resposta Correta:</strong> ${String.fromCharCode(65 + question.correct_answer)}</p>
-                    <p><strong>Justificativa:</strong> ${question.explanation}</p>
-                </div>
-            </div>
-            <div class="question-details" id="questionDetails${index}" style="display: none;">
-                <div class="mdc-card" style="margin-top: 16px;">
-                    <div class="mdc-card__content">
-                        <h4 class="mdc-typography--subtitle1">Detalhes da Geração</h4>
-                        ${hasGenerationDetails ? `
-                            <!-- IA de Geração de Pergunta -->
-                            <div class="ai-section">
-                                <h5 class="mdc-typography--subtitle2">IA de Geração de Pergunta</h5>
-                                <div class="mdc-typography--body2">
-                                    <strong>Prompt:</strong>
-                                    <pre id="questionPrompt${index}">Carregando...</pre>
-                                    <strong>Chunks Utilizados:</strong>
-                                    <pre id="questionChunks${index}">Carregando...</pre>
-                                </div>
-                            </div>
-                            
-                            <!-- IA de Geração de Resposta -->
-                            <div class="ai-section">
-                                <h5 class="mdc-typography--subtitle2">IA de Geração de Resposta</h5>
-                                <div class="mdc-typography--body2">
-                                    <strong>Prompt:</strong>
-                                    <pre id="answerPrompt${index}">Carregando...</pre>
-                                    <strong>Chunks Utilizados:</strong>
-                                    <pre id="answerChunks${index}">Carregando...</pre>
-                                </div>
-                            </div>
-                            
-                            <!-- IA de Geração de Distratores -->
-                            <div class="ai-section">
-                                <h5 class="mdc-typography--subtitle2">IA de Geração de Distratores</h5>
-                                <div class="mdc-typography--body2">
-                                    <strong>Prompt:</strong>
-                                    <pre id="distractorsPrompt${index}">Carregando...</pre>
-                                    <strong>Chunks Utilizados:</strong>
-                                    <pre id="distractorsChunks${index}">Carregando...</pre>
-                                </div>
-                            </div>
-                        ` : `
-                            <p class="mdc-typography--body1">Detalhes de geração não disponíveis.</p>
-                        `}
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-// Função para alternar a visibilidade da resposta
-function toggleAnswer(index) {
-    const answerSection = document.getElementById(`answerSection${index}`);
-    if (answerSection) {
-        answerSection.style.display = answerSection.style.display === 'none' ? 'block' : 'none';
-    }
-}
-
-// Função para carregar os detalhes de geração
-function loadGenerationDetails(question, index) {
-    if (!question.question_prompt_id) return;
-
-    // Carregar prompts
-    fetch(`/api/prompt/${question.question_prompt_id}`)
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById(`questionPrompt${index}`).textContent = data.prompt_text;
-        })
-        .catch(error => console.error('Erro ao carregar prompt da pergunta:', error));
-
-    fetch(`/api/prompt/${question.answer_prompt_id}`)
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById(`answerPrompt${index}`).textContent = data.prompt_text;
-        })
-        .catch(error => console.error('Erro ao carregar prompt da resposta:', error));
-
-    fetch(`/api/prompt/${question.distractors_prompt_id}`)
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById(`distractorsPrompt${index}`).textContent = data.prompt_text;
-        })
-        .catch(error => console.error('Erro ao carregar prompt dos distratores:', error));
-
-    // Carregar chunks
-    fetch(`/api/chunk/${question.question_chunk_id}`)
-        .then(response => response.json())
-        .then(data => {
-            const chunksElement = document.getElementById(`questionChunks${index}`);
-            if (chunksElement) {
-                try {
-                    const chunks = JSON.parse(data.content);
-                    chunksElement.textContent = JSON.stringify(chunks, null, 2);
-                } catch (e) {
-                    chunksElement.textContent = data.content;
-                }
-            }
-        })
-        .catch(error => console.error('Erro ao carregar chunks da pergunta:', error));
-
-    fetch(`/api/chunk/${question.answer_chunk_id}`)
-        .then(response => response.json())
-        .then(data => {
-            const chunksElement = document.getElementById(`answerChunks${index}`);
-            if (chunksElement) {
-                try {
-                    const chunks = JSON.parse(data.content);
-                    chunksElement.textContent = JSON.stringify(chunks, null, 2);
-                } catch (e) {
-                    chunksElement.textContent = data.content;
-                }
-            }
-        })
-        .catch(error => console.error('Erro ao carregar chunks da resposta:', error));
-
-    fetch(`/api/chunk/${question.distractors_chunk_id}`)
-        .then(response => response.json())
-        .then(data => {
-            const chunksElement = document.getElementById(`distractorsChunks${index}`);
-            if (chunksElement) {
-                try {
-                    const chunks = JSON.parse(data.content);
-                    chunksElement.textContent = JSON.stringify(chunks, null, 2);
-                } catch (e) {
-                    chunksElement.textContent = data.content;
-                }
-            }
-        })
-        .catch(error => console.error('Erro ao carregar chunks dos distratores:', error));
-}
-
-// Atualizar a função toggleQuestionDetails
-function toggleQuestionDetails(index) {
-    console.log('Tentando alternar detalhes para questão:', index);
-    
-    const detailsElement = document.getElementById(`questionDetails${index}`);
-    if (!detailsElement) {
-        console.error('Elemento de detalhes não encontrado:', `questionDetails${index}`);
-        return;
-    }
-    
-    const questionCard = detailsElement.closest('.question-card');
-    if (!questionCard) {
-        console.error('Card da questão não encontrado');
-        return;
-    }
-    
-    const button = questionCard.querySelector('.question-header .mdc-button--icon');
-    if (!button) {
-        console.error('Botão não encontrado no card');
-        return;
-    }
-    
-    const icon = button.querySelector('i');
-    if (!icon) {
-        console.error('Ícone não encontrado no botão');
-        return;
-    }
-    
-    // Alternar visibilidade
-    if (detailsElement.style.display === 'none') {
-        detailsElement.style.display = 'block';
-        icon.textContent = 'remove';
-        console.log('Detalhes exibidos para questão:', index);
-        
-        // Carregar detalhes quando exibir
-        const question = window.generatedQuestions[index];
-        if (question) {
-            loadGenerationDetails(question, index);
-        }
-    } else {
-        detailsElement.style.display = 'none';
-        icon.textContent = 'add';
-        console.log('Detalhes ocultados para questão:', index);
-    }
-}
-
-// Função para atualizar o estado do progresso
-function updateProgress(step, message) {
+function updateProgress(percent, message) {
+    const progressBar = document.getElementById('progressBar');
     const progressMessage = document.getElementById('progressMessage');
-    const progressSteps = document.getElementById('progressSteps').getElementsByClassName('progress-step');
     
-    if (progressMessage && progressSteps) {
+    if (progressBar && window.progressBar) {
+        window.progressBar.progress = percent / 100;
+    }
+    
+    if (progressMessage) {
         progressMessage.textContent = message;
-        
-        // Atualizar ícones dos passos
-        for (let i = 0; i < progressSteps.length; i++) {
-            const icon = progressSteps[i].querySelector('.material-icons');
-            if (i < step) {
+    }
+    
+    // Atualizar ícones dos passos
+    const steps = document.querySelectorAll('.progress-step');
+    steps.forEach((step, index) => {
+        const icon = step.querySelector('.material-icons');
+        if (icon) {
+            if (index === 0 && percent > 0) {
                 icon.textContent = 'check_circle';
-                icon.style.color = '#4CAF50';
-            } else if (i === step) {
-                icon.textContent = 'autorenew';
-                icon.style.color = '#2196F3';
-                icon.classList.add('rotating');
+            } else if (index === 1 && percent > 50) {
+                icon.textContent = 'check_circle';
+            } else if (index === 2 && percent === 100) {
+                icon.textContent = 'check_circle';
             } else {
                 icon.textContent = 'pending';
-                icon.style.color = '';
-                icon.classList.remove('rotating');
             }
         }
-    }
+    });
 }
 
-// Função segura para fechar o diálogo
 function safeCloseDialog() {
-    if (window.progressDialog && window.progressDialog.isOpen) {
+    if (window.progressDialog) {
         try {
             window.progressDialog.close();
-            console.log('Diálogo fechado com sucesso');
         } catch (error) {
             console.error('Erro ao fechar diálogo:', error);
         }
     }
 }
 
-// Adicionar estilo para o ícone rotativo
-const style = document.createElement('style');
-style.textContent = `
-    .rotating {
-        animation: rotate 2s linear infinite;
-    }
-    @keyframes rotate {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-`;
-document.head.appendChild(style);
-
-// Função para excluir uma questão
-async function deleteQuestion(index) {
-    if (!window.generatedQuestions || !window.generatedQuestions[index]) {
-        console.error('Questão não encontrada');
-        return;
-    }
-
-    const question = window.generatedQuestions[index];
-    const questionElement = document.getElementById(`question-${index}`);
-    
-    if (!questionElement) {
-        console.error('Elemento da questão não encontrado');
-        return;
-    }
-
-    // Confirmar exclusão
-    if (!confirm('Tem certeza que deseja excluir esta questão?')) {
-        return;
-    }
-
-    try {
-        // Se a questão tem ID, excluir do banco de dados
-        if (question.id) {
-            const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-            const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
-            
-            const response = await fetch(`/api/question/${question.id}`, {
-                method: 'DELETE',
-                headers: {
-                    'X-CSRFToken': csrfToken
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Falha ao excluir questão do banco de dados');
-            }
-        }
-
-        // Remover questão do array
-        window.generatedQuestions.splice(index, 1);
-        
-        // Remover elemento da interface
-        questionElement.remove();
-        
-        // Atualizar índices das questões restantes
-        const remainingQuestions = document.querySelectorAll('.question-card');
-        remainingQuestions.forEach((element, idx) => {
-            const titleElement = element.querySelector('.mdc-typography--headline6');
-            if (titleElement) {
-                titleElement.textContent = `Questão ${idx + 1}`;
-            }
-        });
-
-        // Se não houver mais questões, ocultar a seção de resultados
-        if (window.generatedQuestions.length === 0) {
-            document.getElementById('resultsSection').style.display = 'none';
-        }
-
-    } catch (error) {
-        console.error('Erro ao excluir questão:', error);
-        alert('Erro ao excluir questão: ' + error.message);
-    }
-}
-
-function displayQuestions(questions) {
-    const container = document.getElementById('questionsContainer');
-    const debugContainer = document.getElementById('debugContainer');
-    container.innerHTML = '';
-    debugContainer.innerHTML = '';
-    
-    questions.forEach((question, index) => {
-        // Criar elemento para a questão
-        const questionElement = document.createElement('div');
-        questionElement.className = 'mdc-card';
-        questionElement.style.marginBottom = '20px';
-        questionElement.style.padding = '20px';
-        
-        // Adicionar pergunta
-        const questionText = document.createElement('h4');
-        questionText.textContent = `${index + 1}. ${question.question || 'Pergunta não disponível'}`;
-        questionElement.appendChild(questionText);
-        
-        // Adicionar opções
-        const optionsList = document.createElement('ul');
-        if (question.options && question.options.length > 0) {
-            question.options.forEach((option, i) => {
-                const li = document.createElement('li');
-                li.textContent = `${String.fromCharCode(65 + i)}. ${option || 'Opção não disponível'}`;
-                optionsList.appendChild(li);
-            });
-        } else {
-            const li = document.createElement('li');
-            li.textContent = 'Opções não disponíveis';
-            optionsList.appendChild(li);
-        }
-        questionElement.appendChild(optionsList);
-        
-        // Adicionar resposta correta
-        const correctAnswer = document.createElement('p');
-        correctAnswer.textContent = `Resposta Correta: ${question.correct_answer || 'Não disponível'}`;
-        correctAnswer.style.fontWeight = 'bold';
-        questionElement.appendChild(correctAnswer);
-        
-        // Adicionar explicação
-        const explanation = document.createElement('p');
-        explanation.textContent = `Explicação: ${question.explanation || 'Não disponível'}`;
-        explanation.style.marginTop = '10px';
-        questionElement.appendChild(explanation);
-        
-        container.appendChild(questionElement);
-        
-        // Adicionar informações de debug
-        if (question.debug_info) {
-            const debugElement = document.createElement('div');
-            debugElement.className = 'mdc-card';
-            debugElement.style.marginBottom = '20px';
-            debugElement.style.padding = '20px';
-            debugElement.style.backgroundColor = '#f5f5f5';
-            
-            const debugTitle = document.createElement('h4');
-            debugTitle.textContent = `Debug - Questão ${index + 1}`;
-            debugElement.appendChild(debugTitle);
-            
-            // Prompt do conteúdo
-            const contentPrompt = document.createElement('div');
-            contentPrompt.innerHTML = `<strong>Prompt do Conteúdo:</strong><pre>${question.debug_info.content_prompt || 'Não disponível'}</pre>`;
-            debugElement.appendChild(contentPrompt);
-            
-            // Prompt das questões
-            const questionsPrompt = document.createElement('div');
-            questionsPrompt.innerHTML = `<strong>Prompt das Questões:</strong><pre>${question.debug_info.questions_prompt || 'Não disponível'}</pre>`;
-            debugElement.appendChild(questionsPrompt);
-            
-            // Resposta bruta
-            const rawResponse = document.createElement('div');
-            rawResponse.innerHTML = `<strong>Resposta Bruta:</strong><pre>${question.debug_info.raw_response || 'Não disponível'}</pre>`;
-            debugElement.appendChild(rawResponse);
-            
-            debugContainer.appendChild(debugElement);
-        }
-    });
-}
-
 function showGeneratedQuestions(questions) {
-    const container = document.getElementById('generated-questions');
-    container.innerHTML = '';
+    const resultsSection = document.getElementById('resultsSection');
+    const questionsContainer = document.getElementById('generatedQuestions');
     
-    questions.forEach((question, index) => {
-        const card = document.createElement('div');
-        card.className = 'mdc-card';
-        card.style = 'margin-bottom: 16px; padding: 16px;';
+    if (resultsSection && questionsContainer) {
+        questionsContainer.innerHTML = '';
         
-        // Log para debug
-        console.log('Questão:', question);
-        
-        let html = `
-            <div class="mdc-card__primary">
-                <h2 class="mdc-typography--headline6">Questão ${index + 1}</h2>
-            </div>
-            <div class="mdc-card__content">
+        questions.forEach((question, index) => {
+            const questionCard = document.createElement('div');
+            questionCard.className = 'mdc-card';
+            questionCard.style.marginBottom = '16px';
+            questionCard.style.padding = '16px';
+            
+            questionCard.innerHTML = `
+                <h3 class="mdc-typography--headline6">Questão ${index + 1}</h3>
                 <p class="mdc-typography--body1">${question.question}</p>
-                
-                <div class="options-area" style="margin: 16px 0;">
-                    ${question.options.map((opt, idx) => `
-                        <div class="option" style="margin-bottom: 8px;">
-                            <span class="mdc-typography--body2">
-                                ${String.fromCharCode(65 + idx)}. ${opt}
-                                ${idx === question.correct_answer ? ' ✓' : ''}
-                            </span>
-                        </div>
-                    `).join('')}
+                <div class="mdc-typography--body2" style="margin-top: 8px;">
+                    <strong>Resposta correta:</strong> ${question.correct_answer}
                 </div>
-                
-                <div class="explanation" style="margin-top: 16px;">
-                    <h3 class="mdc-typography--subtitle1">Explicação:</h3>
-                    <p class="mdc-typography--body2">${question.explanation}</p>
+                <div class="mdc-typography--body2" style="margin-top: 8px;">
+                    <strong>Explicação:</strong> ${question.explanation}
                 </div>
-                
-                ${question.metadata ? `
-                    <div class="metadata" style="margin-top: 16px;">
-                        <h3 class="mdc-typography--subtitle1">Informações Adicionais:</h3>
-                        ${question.metadata.pmbok_references ? `
-                            <p class="mdc-typography--body2">
-                                <strong>Referências PMBOK:</strong><br>
-                                ${question.metadata.pmbok_references.join('<br>')}
-                            </p>
-                        ` : ''}
-                        ${question.metadata.practical_examples ? `
-                            <p class="mdc-typography--body2">
-                                <strong>Exemplos Práticos:</strong><br>
-                                ${question.metadata.practical_examples.join('<br>')}
-                            </p>
-                        ` : ''}
-                        ${question.metadata.warnings ? `
-                            <div class="warnings" style="margin-top: 8px; padding: 8px; background-color: #fff3e0; border-radius: 4px;">
-                                <p class="mdc-typography--body2" style="color: #e65100; margin: 0;">
-                                    <i class="material-icons" style="font-size: 16px; vertical-align: text-bottom;">warning</i>
-                                    Avisos:
-                                </p>
-                                <ul style="margin: 4px 0 0 0; padding-left: 24px;">
-                                    ${question.metadata.warnings.map(warning => `
-                                        <li class="mdc-typography--body2" style="color: #e65100;">${warning}</li>
-                                    `).join('')}
-                                </ul>
-                            </div>
-                        ` : ''}
-                    </div>
-                ` : ''}
-            </div>
-        `;
-        
-        card.innerHTML = html;
-        container.appendChild(card);
-    });
-}
-
-async function generateQuestions() {
-    const topic = document.getElementById('topic').value;
-    const numQuestions = document.getElementById('num-questions').value;
-    
-    if (!topic) {
-        alert('Por favor, selecione um tópico.');
-        return;
-    }
-    
-    if (!numQuestions || numQuestions < 1 || numQuestions > 20) {
-        alert('O número de questões deve estar entre 1 e 20.');
-        return;
-    }
-    
-    // Verificar se o diálogo está disponível
-    if (!window.progressDialog) {
-        console.error('Diálogo não inicializado');
-        try {
-            window.progressDialog = new mdc.dialog.MDCDialog(document.getElementById('progressDialog'));
-            console.log('Diálogo inicializado no submit');
-        } catch (error) {
-            console.error('Erro ao inicializar diálogo no submit:', error);
-            alert('Erro interno: não foi possível mostrar o diálogo de progresso');
-            return;
-        }
-    }
-    
-    try {
-        window.progressDialog.open();
-        updateProgress(0, 'Validando parâmetros...');
-        console.log('Diálogo aberto com sucesso');
-    } catch (error) {
-        console.error('Erro ao abrir diálogo:', error);
-        alert('Erro interno: não foi possível mostrar o diálogo de progresso');
-        return;
-    }
-    
-    // Enviar requisição para gerar questões
-    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-    if (!csrfMeta) {
-        alert('Erro interno: CSRF token não encontrado no template.');
-        safeCloseDialog();
-        return;
-    }
-    
-    updateProgress(1, 'Gerando questões...');
-    
-    const csrfToken = csrfMeta.getAttribute('content');
-    try {
-        const response = await fetch('/api/generate-questions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            body: JSON.stringify({
-                topic: topic,
-                num_questions: parseInt(numQuestions)
-            })
+            `;
+            
+            questionsContainer.appendChild(questionCard);
         });
         
-        const result = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(result.error || 'Erro ao gerar questões');
-        }
-        
-        if (!result.success) {
-            throw new Error(result.error || 'Erro ao gerar questões');
-        }
-        
-        // Log para debug
-        console.log('Questões geradas:', result.questions);
-        
-        updateProgress(100, 'Questões geradas com sucesso!');
-        setTimeout(() => {
-            safeCloseDialog();
-            showGeneratedQuestions(result.questions);
-        }, 1000);
-        
-    } catch (error) {
-        console.error('Erro ao gerar questões:', error);
-        updateProgress(0, `Erro: ${error.message}`);
-        setTimeout(safeCloseDialog, 2000);
+        resultsSection.style.display = 'block';
     }
 }
 </script>

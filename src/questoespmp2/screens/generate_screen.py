@@ -197,7 +197,7 @@ class GenerateScreen(MDScreen):
         self.selected_topic = None
         self.questions = []
         self.api_manager = APIManager()
-        self.db = DatabaseManager()
+        self.db_manager = DatabaseManager()
         self.api = None
         self.generation_thread = None
         self.default_models = self.api_manager.get_default_models()
@@ -279,8 +279,19 @@ class GenerateScreen(MDScreen):
             size_hint=(None, None),
             height=dp(50),
             width=dp(200),
-            on_release=lambda x: self.topic_menu.open()
+            md_bg_color=(0.2, 0.6, 0.8, 1.0),
+            elevation=2,
         )
+        # Adicionar label ao botão
+        topic_label = MDLabel(
+            text="Selecionar Tópico",
+            size_hint=(None, None),
+            size=(dp(200), dp(50)),
+            pos_hint={'center_x': 0.5},
+            halign="center",
+            valign="center",
+        )
+        self.topic_button.add_widget(topic_label)
         input_card.add_widget(self.topic_button)
         
         # Number of Subtopics Input
@@ -465,19 +476,54 @@ class GenerateScreen(MDScreen):
     
     def setup_menu(self):
         """Set up the topic selection menu."""
-        menu_items = [
-            {
-                "text": topic,
-                "viewclass": "OneLineListItem",
-                "on_release": lambda x=topic: self.select_topic(x),
-            } for topic in self.TOPICS
-        ]
-        
-        self.topic_menu = MDDropdownMenu(
-            caller=self.topic_button,
-            items=menu_items,
-            width_mult=4,
-        )
+        try:
+            logger.info(f"Configurando menu de tópicos com {len(self.TOPICS)} tópicos")
+            
+            # Criar os itens do menu com labels associados
+            menu_items = []
+            for i, topic in enumerate(self.TOPICS):
+                menu_items.append({
+                    "text": topic,
+                    "viewclass": "OneLineListItem",
+                    "on_release": lambda x=topic: self.select_topic(x),
+                    "id": f"topic_item_{i}",
+                    "label": f"Selecionar tópico: {topic}",
+                    "aria-label": f"Selecionar tópico: {topic}",
+                })
+            
+            logger.info(f"Menu items criados: {menu_items}")
+            
+            # Criar o menu dropdown com estrutura acessível
+            self.topic_menu = MDDropdownMenu(
+                caller=self.topic_button,
+                items=menu_items,
+                width_mult=4,
+                position="center",
+                radius=[10, 10, 10, 10],
+                ver_growth="down",
+                hor_growth="right",
+                max_height=dp(300),
+                background_color=(0.95, 0.95, 0.95, 1),  # Fundo claro
+                elevation=2,
+            )
+            
+            # Configurar o menu para ser exibido abaixo do botão
+            self.topic_menu.bind(on_dismiss=self.on_menu_dismiss)
+            
+            # Adicionar label ao botão
+            self.topic_button.bind(on_release=self.show_topics_menu)
+            self.topic_button.ids.label.text = "Selecionar Tópico"
+            self.topic_button.ids.label.bind(on_release=self.show_topics_menu)
+            
+            logger.info("Menu de tópicos configurado com sucesso")
+            
+        except Exception as e:
+            logger.error(f"Erro ao configurar menu de tópicos: {str(e)}")
+            self.show_error("Erro", "Não foi possível configurar o menu de tópicos")
+    
+    def on_menu_dismiss(self, *args):
+        """Chamado quando o menu é fechado."""
+        logger.info("Menu de tópicos fechado")
     
     def select_topic(self, topic):
         """Handle topic selection."""
@@ -725,7 +771,7 @@ class GenerateScreen(MDScreen):
             
             # Get relevant chunks for context
             topic = self.selected_topic
-            relevant_chunks = self.db.find_most_relevant_chunks(topic)
+            relevant_chunks = self.db_manager.find_most_relevant_chunks(topic)
             
             # Get user inputs
             num_questions = int(self.num_questions.text)
@@ -763,7 +809,7 @@ class GenerateScreen(MDScreen):
             api_key = self.api_key.text if hasattr(self, 'api_key') else None
             
             # Get relevant chunks for context
-            relevant_chunks = self.db.find_most_relevant_chunks(topic)
+            relevant_chunks = self.db_manager.find_most_relevant_chunks(topic)
             
             # Models info
             models_info = {
@@ -808,7 +854,10 @@ class GenerateScreen(MDScreen):
                 questions = generate_questions(
                     topic=topic,
                     num_questions=num_questions,
-                    api_key=api_key
+                    api_key=api_key,
+                    question_model=question_model,
+                    answer_model=answer_model,
+                    distractor_model=wrong_answers_model
                 )
             
             if not questions:
@@ -819,9 +868,8 @@ class GenerateScreen(MDScreen):
                 raise ValueError("Nenhuma questão foi gerada.")
             
             # Save questions to database
-            db = DatabaseManager()
             for question in questions:
-                db.save_question(question)
+                self.db_manager.save_question(question)
             
             # Update interface
             self.questions = questions  # Atribuir as questões ao objeto
@@ -840,140 +888,41 @@ class GenerateScreen(MDScreen):
             logger.setLevel(original_level)
     
     def _generate_simulated_questions(self, topic: str, num_questions: int) -> list:
-        """Gera questões simuladas para fins de desenvolvimento."""
-        logger.info(f"Gerando questões simuladas sobre {topic}")
-        
-        questions = []
-        
-        # Templates de questões para diferentes tópicos
-        templates = {
-            "Gerenciamento da Integração": [
-                "Qual é o principal objetivo do processo de Desenvolver o Termo de Abertura do Projeto?",
-                "Durante o encerramento do projeto, qual documento deve ser atualizado para registrar as lições aprendidas?",
-                "Qual é a principal saída do processo de Monitorar e Controlar o Trabalho do Projeto?"
-            ],
-            "Gerenciamento do Escopo": [
-                "Qual técnica é mais útil para verificar o escopo do projeto com os stakeholders?",
-                "Qual documento contém os critérios de aceitação dos entregáveis do projeto?",
-                "Qual processo é responsável pela criação da Estrutura Analítica do Projeto (EAP)?"
-            ],
-            "Gerenciamento do Cronograma": [
-                "Qual técnica é usada para calcular as datas de início e término mais cedo e mais tarde para as atividades do projeto?",
-                "Qual é a diferença entre caminho crítico e cadeia crítica no gerenciamento do cronograma?",
-                "O que representa a folga livre em uma atividade do cronograma?"
-            ]
-        }
-        
-        # Respostas para as perguntas
-        answers = {
-            "Qual é o principal objetivo do processo de Desenvolver o Termo de Abertura do Projeto?": 
-                "Autorizar formalmente o projeto e documentar os requisitos iniciais",
-            "Durante o encerramento do projeto, qual documento deve ser atualizado para registrar as lições aprendidas?": 
-                "Ativos de processos organizacionais",
-            "Qual é a principal saída do processo de Monitorar e Controlar o Trabalho do Projeto?": 
-                "Solicitações de mudança",
-            "Qual técnica é mais útil para verificar o escopo do projeto com os stakeholders?": 
-                "Inspeção",
-            "Qual documento contém os critérios de aceitação dos entregáveis do projeto?": 
-                "Declaração do escopo do projeto",
-            "Qual processo é responsável pela criação da Estrutura Analítica do Projeto (EAP)?": 
-                "Criar EAP",
-            "Qual técnica é usada para calcular as datas de início e término mais cedo e mais tarde para as atividades do projeto?": 
-                "Método do Caminho Crítico (CPM)",
-            "Qual é a diferença entre caminho crítico e cadeia crítica no gerenciamento do cronograma?": 
-                "O caminho crítico considera apenas as dependências entre tarefas, enquanto a cadeia crítica também considera restrições de recursos",
-            "O que representa a folga livre em uma atividade do cronograma?": 
-                "O tempo que uma atividade pode atrasar sem afetar o início mais cedo da próxima atividade"
-        }
-        
-        # Opções incorretas
-        wrong_options = {
-            "Qual é o principal objetivo do processo de Desenvolver o Termo de Abertura do Projeto?": [
-                "Definir o cronograma detalhado do projeto",
-                "Documentar os riscos do projeto",
-                "Aprovar o orçamento final do projeto"
-            ],
-            "Durante o encerramento do projeto, qual documento deve ser atualizado para registrar as lições aprendidas?": [
-                "Plano de gerenciamento do projeto",
-                "Termo de abertura do projeto",
-                "Registro de riscos"
-            ],
-            "Qual é a principal saída do processo de Monitorar e Controlar o Trabalho do Projeto?": [
-                "Entregas aceitas",
-                "Atualizações no plano de gerenciamento do projeto",
-                "Relatórios de desempenho"
-            ],
-            "Qual técnica é mais útil para verificar o escopo do projeto com os stakeholders?": [
-                "Análise de variação",
-                "Decomposição",
-                "Planejamento em ondas sucessivas"
-            ],
-            "Qual documento contém os critérios de aceitação dos entregáveis do projeto?": [
-                "Registro das partes interessadas",
-                "Documentação dos requisitos",
-                "Dicionário da EAP"
-            ],
-            "Qual processo é responsável pela criação da Estrutura Analítica do Projeto (EAP)?": [
-                "Definir o Escopo",
-                "Validar o Escopo",
-                "Coletar os Requisitos"
-            ],
-            "Qual técnica é usada para calcular as datas de início e término mais cedo e mais tarde para as atividades do projeto?": [
-                "Técnica de Avaliação e Revisão de Programa (PERT)",
-                "Método da Corrente Crítica",
-                "Compressão do Cronograma"
-            ],
-            "Qual é a diferença entre caminho crítico e cadeia crítica no gerenciamento do cronograma?": [
-                "O caminho crítico é usado em projetos ágeis, enquanto a cadeia crítica é usada em projetos preditivos",
-                "O caminho crítico é calculado pelo método PERT, enquanto a cadeia crítica é calculada pelo CPM",
-                "O caminho crítico considera apenas o tempo, enquanto a cadeia crítica considera apenas os recursos"
-            ],
-            "O que representa a folga livre em uma atividade do cronograma?": [
-                "O tempo adicional necessário para concluir uma atividade",
-                "O tempo que uma atividade pode atrasar sem afetar o término do projeto",
-                "O tempo entre o início mais cedo e o início mais tarde de uma atividade"
-            ]
-        }
-        
-        # Selecionar questões para o tópico específico ou usar questões gerais
-        topic_questions = templates.get(topic, [f"Explique um conceito importante de {topic}"])
-        
-        # Criar questões com respostas e opções
-        for i in range(min(num_questions, len(topic_questions))):
-            question_text = topic_questions[i]
+        """Generate simulated questions for testing."""
+        try:
+            # Get relevant chunks for context
+            relevant_chunks = self.db_manager.find_most_relevant_chunks(topic)
             
-            # Resposta correta
-            correct_answer = answers.get(question_text, f"A resposta correta para {question_text}")
+            # Generate questions
+            questions = []
+            for i in range(num_questions):
+                question = {
+                    'question': f'Questão simulada {i+1} sobre {topic}',
+                    'options': [
+                        f'Opção A da questão {i+1}',
+                        f'Opção B da questão {i+1}',
+                        f'Opção C da questão {i+1}',
+                        f'Opção D da questão {i+1}'
+                    ],
+                    'correct_answer': random.randint(0, 3),
+                    'explanation': f'Explicação da questão {i+1}',
+                    'topic': topic,
+                    'metadata': {
+                        'used_chunks': [chunk['id'] for chunk in relevant_chunks[:2]],
+                        'used_models': {
+                            'question': 'simulated',
+                            'answer': 'simulated',
+                            'distractor': 'simulated'
+                        }
+                    }
+                }
+                questions.append(question)
             
-            # Opções incorretas
-            options = wrong_options.get(question_text, [
-                f"Alternativa incorreta 1 para {question_text}",
-                f"Alternativa incorreta 2 para {question_text}",
-                f"Alternativa incorreta 3 para {question_text}"
-            ])
+            return questions
             
-            # Montar todas as opções (certa + erradas)
-            all_options = [correct_answer] + options
-            random.shuffle(all_options)  # Misturar opções
-            
-            # Determinar qual é a opção correta (A, B, C, D)
-            correct_index = all_options.index(correct_answer)
-            correct_letter = chr(65 + correct_index)  # A, B, C, D
-            
-            # Criar questão
-            question = {
-                "question": question_text,
-                "options": all_options,
-                "correct_answer": correct_letter,
-                "explanation": f"A resposta correta é {correct_letter}: {correct_answer}",
-                "topic": topic,
-                "subtopic": "",
-                "difficulty": "medium"
-            }
-            
-            questions.append(question)
-            
-        return questions
+        except Exception as e:
+            logger.error(f"Error generating simulated questions: {str(e)}")
+            return []
     
     def validate_inputs(self):
         """Validate user inputs."""
@@ -1186,98 +1135,52 @@ class GenerateScreen(MDScreen):
         dialog.open()
 
     def get_model_name(self, model_id):
-        """Obtém um nome amigável para o modelo."""
-        if not model_id:
-            return "Não selecionado"
+        """Get the display name for a model ID."""
+        try:
+            # Get model info from database
+            model = self.db_manager.get_model_by_id(model_id)
+            if model:
+                return model.get('name', model_id)
+            return model_id
+        except Exception as e:
+            logger.error(f"Error getting model name: {str(e)}")
+            return model_id
+
+    def process_document(self, file_path):
+        """Process a document and save its chunks."""
+        try:
+            # Process document
+            chunks = process_document_to_chunks(file_path)
             
-        # Correção para o modelo específico com ID incorreto
-        if model_id == "ftjob-ebT80fcJhVVJTrhXQzKV88Q3":
-            model_id = "ft:gpt-3.5-turbo-0125:personal::BGt3nwXI"
-        elif model_id == "ft:gpt-3.5-turbo:personal::QzKV88Q3" or "QzKV88Q3" in model_id:
-            model_id = "ft:gpt-3.5-turbo-0125:personal::BGt3nwXI"
+            if not chunks:
+                return False
             
-        # Primeiro, verificar se existe um nome personalizado no banco de dados
-        custom_name = self.api_manager.db.get_model_custom_name(model_id)
-        if custom_name:
-            return custom_name
+            # Save chunks
+            for chunk in chunks:
+                self.db_manager.save_chunk(chunk)
             
-        # Se for um job ID, tentar obter o model ID associado
-        if model_id.startswith("ftjob-"):
-            try:
-                # Tentar obter o modelo associado ao job
-                job_info = self.api.get_fine_tuning_job(model_id)
-                if job_info and 'fine_tuned_model' in job_info:
-                    model_id = job_info['fine_tuned_model']
-            except Exception as e:
-                logger.warning(f"Não foi possível obter informações do job {model_id}: {e}")
-                return f"Job de Fine-tuning: {model_id}"
+            return True
             
-        # Extrair informações significativas do ID do modelo
-        parts = model_id.split(':')
-        
-        # Formato específico para modelos da OpenAI com formato ft:gpt-3.5-turbo-0125:personal::BGt3nwXI
-        if len(parts) >= 3 and parts[0] == "ft" and "personal" in parts[2]:
-            base_model = parts[1]  # gpt-3.5-turbo-0125, etc.
-            version = ""
-            if "-" in base_model:
-                # Extrair versão do modelo base se disponível
-                base_parts = base_model.split('-')
-                if len(base_parts) >= 2:
-                    base_name = f"GPT-{base_parts[1]}"
-                    # Adicionar versão se disponível (como 0125)
-                    if len(base_parts) >= 3:
-                        version = f"-{base_parts[2]}"
-                else:
-                    base_name = base_model.upper()
+        except Exception as e:
+            logger.error(f"Error processing document: {str(e)}")
+            return False
+
+    def show_topics_menu(self, *args):
+        """Show the topics dropdown menu."""
+        try:
+            if not self.topic_menu:
+                logger.warning("Menu de tópicos não inicializado, tentando recriar...")
+                self.setup_menu()
+            
+            if self.topic_menu:
+                logger.info("Abrindo menu de tópicos")
+                # Posicionar o menu abaixo do botão
+                self.topic_menu.pos = self.topic_button.pos
+                self.topic_menu.pos[1] -= self.topic_button.height
+                self.topic_menu.open()
             else:
-                base_name = base_model.upper()
-                
-            # Adicionar identificador único do modelo se disponível
-            model_identifier = ""
-            if len(parts) >= 4 and parts[3]:
-                model_identifier = f" ({parts[3]})"
-                
-            return f"Modelo Fine-tuned {base_name}{version}{model_identifier}"
-        
-        # Formato padrão ft:gpt-3.5-turbo:pmp-questions:12345
-        elif len(parts) >= 3:
-            base_model = parts[1]  # gpt-3.5-turbo, gpt-4, etc.
-            purpose = parts[2]  # pmp-questions, pmp-answers, etc.
-            
-            # Mapear finalidade para um nome mais amigável
-            purpose_names = {
-                'pmp-questions': 'Questões PMP',
-                'pmp-answers': 'Respostas PMP',
-                'pmp-distractors': 'Distratores PMP',
-                'questions': 'Questões',
-                'answers': 'Respostas',
-                'distractors': 'Distratores',
-                'wrong-answers': 'Distratores',
-                'wrong_answers': 'Distratores',
-                'personal': 'Personalizado'
-            }
-            
-            friendly_purpose = purpose_names.get(purpose, purpose.capitalize())
-            
-            # Extrair versão do modelo base se disponível
-            base_parts = base_model.split('-')
-            if len(base_parts) >= 2:
-                base_name = f"GPT-{base_parts[1]}"
-            else:
-                base_name = base_model.upper()
-                
-            # Adicionar identificador único do modelo se disponível
-            model_suffix = ""
-            if len(parts) >= 4 and parts[3]:
-                model_suffix = f" ({parts[3]})"
-                
-            return f"{friendly_purpose} ({base_name}{model_suffix})"
-        
-        # Para modelos padrão
-        elif model_id == "default_gpt35":
-            return "GPT-3.5 Turbo (Padrão)"
-        elif model_id == "default_gpt4":
-            return "GPT-4 (Padrão)"
-        
-        # Se não conseguir extrair informações, retornar o ID original
-        return model_id
+                logger.error("Não foi possível criar o menu de tópicos")
+                self.show_error("Erro", "Não foi possível abrir o menu de tópicos")
+        except Exception as e:
+            logger.error(f"Erro ao abrir menu de tópicos: {str(e)}")
+            self.show_error("Erro", "Não foi possível abrir o menu de tópicos")

@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block title %}Gerenciar Modelos de IA{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3">Gerenciar Modelos de IA</h1>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addModelModal">
+            <i class="material-icons">add</i>
+            Adicionar Modelo
+        </button>
+    </div>
+
+    <div class="row">
+        <!-- Modelos de Questões -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Modelos de Questões</h5>
+                </div>
+                <div class="card-body" id="question-models">
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modelos de Respostas -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="card-title mb-0">Modelos de Respostas</h5>
+                </div>
+                <div class="card-body" id="answer-models">
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-success" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modelos de Distratores -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="card-title mb-0">Modelos de Distratores</h5>
+                </div>
+                <div class="card-body" id="distractor-models">
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-warning" role="status">
+                            <span class="visually-hidden">Carregando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Adicionar Modelo -->
+<div class="modal fade" id="addModelModal" tabindex="-1" aria-labelledby="addModelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addModelModalLabel">Adicionar Novo Modelo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fechar"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addModelForm">
+                    <div class="mb-3">
+                        <label for="modelName" class="form-label">Nome do Modelo</label>
+                        <input type="text" class="form-control" id="modelName" name="model_name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="modelType" class="form-label">Tipo do Modelo</label>
+                        <select class="form-select" id="modelType" name="model_type" required>
+                            <option value="">Selecione o tipo...</option>
+                            <option value="question">Questões</option>
+                            <option value="answer">Respostas</option>
+                            <option value="distractor">Distratores</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="modelId" class="form-label">ID do Modelo</label>
+                        <input type="text" class="form-control" id="modelId" name="model_id" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="modelDescription" class="form-label">Descrição</label>
+                        <textarea class="form-control" id="modelDescription" name="description" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="saveModelBtn">Salvar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+    .model-card {
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: 2px solid transparent;
+    }
+    
+    .model-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .model-card.default {
+        border-color: #198754;
+    }
+    
+    .model-card .card-body {
+        padding: 1rem;
+    }
+    
+    .model-card .model-name {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+    
+    .model-card .model-id {
+        font-size: 0.875rem;
+        color: #6c757d;
+    }
+    
+    .model-card .model-description {
+        font-size: 0.875rem;
+        margin-top: 0.5rem;
+    }
+    
+    .model-card .default-badge {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Carregar modelos
+    loadModels();
+    
+    // Configurar evento de salvar modelo
+    document.getElementById('saveModelBtn').addEventListener('click', saveModel);
+});
+
+function loadModels() {
+    fetch('/api/models')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                renderModels(data.models);
+            } else {
+                showError('Erro ao carregar modelos');
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            showError('Erro ao carregar modelos');
+        });
+}
+
+function renderModels(models) {
+    const containers = {
+        question: document.getElementById('question-models'),
+        answer: document.getElementById('answer-models'),
+        distractor: document.getElementById('distractor-models')
+    };
+    
+    // Limpar containers
+    Object.values(containers).forEach(container => {
+        container.innerHTML = '';
+    });
+    
+    // Renderizar modelos
+    models.forEach(model => {
+        const container = containers[model.model_type];
+        if (container) {
+            const card = createModelCard(model);
+            container.appendChild(card);
+        }
+    });
+}
+
+function createModelCard(model) {
+    const card = document.createElement('div');
+    card.className = `card model-card mb-3 ${model.is_default ? 'default' : ''}`;
+    card.onclick = () => toggleDefault(model.id);
+    
+    card.innerHTML = `
+        <div class="card-body">
+            ${model.is_default ? '<span class="badge bg-success default-badge">Padrão</span>' : ''}
+            <h6 class="model-name">${model.name}</h6>
+            <div class="model-id">${model.model_id}</div>
+            ${model.description ? `<div class="model-description">${model.description}</div>` : ''}
+        </div>
+    `;
+    
+    return card;
+}
+
+function toggleDefault(modelId) {
+    fetch(`/api/models/${modelId}/toggle-default`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        }
+
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            loadModels();
+        } else {
+            showError(data.message || 'Erro ao alterar modelo padrão');
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        showError('Erro ao alterar modelo padrão');
+    });
+}
+
+function saveModel() {
+    const form = document.getElementById('addModelForm');
+    const formData = new FormData(form);
+    
+    fetch('/api/add-model', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            // Fechar modal e recarregar modelos
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addModelModal'));
+            modal.hide();
+            form.reset();
+            loadModels();
+        } else {
+            showError(data.message || 'Erro ao adicionar modelo');
+        }
+    })
+    .catch(error => {
+        console.error('Erro:', error);
+        showError('Erro ao adicionar modelo');
+    });
+}
+
+function showError(message) {
+    const snackbar = document.createElement('div');
+    snackbar.className = 'mdc-snackbar';
+    snackbar.innerHTML = `
+        <div class="mdc-snackbar__surface" role="status" aria-relevant="additions">
+            <div class="mdc-snackbar__label" aria-atomic="false">${message}</div>
+        </div>
+    `;
+    
+    document.body.appendChild(snackbar);
+    const mdcSnackbar = mdc.snackbar.MDCSnackbar.attachTo(snackbar);
+    mdcSnackbar.open();
+    
+    // Remover snackbar após fechar
+    mdcSnackbar.listen('MDCSnackbar:closed', () => {
+        document.body.removeChild(snackbar);
+    });
+}
+</script>
+{% endblock %} 

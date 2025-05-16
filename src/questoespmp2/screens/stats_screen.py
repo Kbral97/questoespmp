@@ -21,7 +21,7 @@ class StatsScreen(MDScreen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.name = "stats"
-        self.db = DatabaseManager()
+        self.db_manager = DatabaseManager()
         self.setup_ui()
         self.confirm_dialog = None
     
@@ -205,7 +205,7 @@ class StatsScreen(MDScreen):
             self.confirm_dialog.dismiss()
             
             # Deletar todas as questões
-            result = self.db.clear_all_questions()
+            result = self.db_manager.clear_all_questions()
             
             if result:
                 Snackbar(
@@ -235,7 +235,7 @@ class StatsScreen(MDScreen):
         """Update statistics from the database."""
         try:
             # Get general statistics
-            stats = self.db.get_statistics()
+            stats = self.db_manager.get_statistics()
             
             # Update total questions answered and accuracy
             total_questions_answered = stats.get('total_questions', 0)
@@ -247,12 +247,12 @@ class StatsScreen(MDScreen):
             self.accuracy.text = f"Precisão: {accuracy:.1f}%"
             
             # Update total questions in database
-            total_questions_db = self.db.get_total_questions_in_database()
+            total_questions_db = self.db_manager.get_total_questions_in_database()
             self.total_questions_db.text = f"Total de Questões no Banco: {total_questions_db}"
             
             # Update topics list
             self.themes_list.clear_widgets()
-            topics = self.db.get_all_topics()
+            topics = self.db_manager.get_all_topics()
             
             if not topics:
                 self.themes_list.add_widget(

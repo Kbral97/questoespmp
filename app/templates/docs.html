@@ -75,7 +75,9 @@ function renderDocumentList() {
       </span>
       <span class="mdc-list-item__text">
         ${doc.name}
-        <span style="font-size:0.9em;color:${doc.processed ? '#388e3c' : '#b71c1c'};margin-left:8px;">${doc.processed ? 'Processado' : 'Não processado'}</span>
+        <span style="font-size:0.9em;color:${doc.processed ? '#388e3c' : '#b71c1c'};margin-left:8px;">
+          ${doc.processed ? 'Processado' : 'Não processado'}
+        </span>
       </span>
     `;
     list.appendChild(li);
@@ -285,16 +287,11 @@ function renderExtractedTopics(topics, documentTitle) {
 }
 
 async function processSelectedTopics() {
-    const selectedTopics = [];
-    document.querySelectorAll('.topic-checkbox:checked').forEach(checkbox => {
-        const topicIndex = checkbox.id.split('-')[1];
-        const topicText = document.getElementById(`topic-text-${topicIndex}`).value;
-        selectedTopics.push({
-            topic: checkbox.value,
-            text: topicText,
-            index: topicIndex
-        });
-    });
+    const selectedTopics = Array.from(document.querySelectorAll('.topic-checkbox:checked')).map(cb => ({
+        topic: cb.dataset.topic,
+        text: cb.dataset.text,
+        index: cb.dataset.index
+    }));
 
     if (selectedTopics.length === 0) {
         alert('Selecione pelo menos um tópico para processar');
@@ -302,11 +299,11 @@ async function processSelectedTopics() {
     }
 
     const documentTitle = document.querySelector('.card-header h5').textContent.split(' - ')[1];
+    const topicCards = document.querySelectorAll('.topic-card');
 
     for (const topic of selectedTopics) {
         try {
             // Encontrar o card do tópico atual
-            const topicCards = document.querySelectorAll('.topic-card');
             const topicCard = topicCards[parseInt(topic.index)];
             
             if (!topicCard) {
@@ -334,69 +331,25 @@ async function processSelectedTopics() {
             });
 
             const result = await response.json();
-            console.log('Resposta da API:', result); // Debug
+            console.log('Resposta da API:', result);
 
             // Remover o loading
             loadingDiv.remove();
 
             if (result.success) {
-                // Criar o card de resposta
-                const responseCard = document.createElement('div');
-                responseCard.className = 'card mb-3';
-                
-                // Garantir que todos os campos existam
-                const keyPoints = result.key_points || [];
-                const practicalExamples = result.practical_examples || [];
-                const pmbokReferences = result.pmbok_references || [];
-                const domains = result.domains || [];
-                
-                responseCard.innerHTML = `
-                    <div class="card-header">
-                        <h6 class="mb-0">Resumo do Tópico ${topic.topic}</h6>
-                    </div>
-                    <div class="card-body">
-                        <h6>Resumo:</h6>
-                        <p>${result.summary || 'Nenhum resumo disponível'}</p>
-                        
-                        <h6>Pontos-Chave:</h6>
-                        <ul>
-                            ${keyPoints.map(point => `
-                                <li><strong>${point.concept || ''}:</strong> ${point.definition || ''}</li>
-                            `).join('')}
-                        </ul>
-                        
-                        <h6>Exemplos Práticos:</h6>
-                        <ul>
-                            ${practicalExamples.map(example => `
-                                <li>${example || ''}</li>
-                            `).join('')}
-                        </ul>
-                        
-                        <h6>Referências PMBOK:</h6>
-                        <ul>
-                            ${pmbokReferences.map(ref => `
-                                <li>${ref || ''}</li>
-                            `).join('')}
-                        </ul>
-                        
-                        <h6>Domínios Relacionados:</h6>
-                        <ul>
-                            ${domains.map(domain => `
-                                <li>${domain || ''}</li>
-                            `).join('')}
-                        </ul>
-                    </div>
-                `;
-                
-                // Inserir após o card do tópico
-                topicCard.parentNode.insertBefore(responseCard, topicCard.nextSibling);
-
                 // Atualizar a lista de documentos para refletir o novo status
                 await fetchDocumentList();
+
+                // Atualizar o status do documento na interface
+                const doc = documentos.find(d => d.name === documentTitle);
+                if (doc) {
+                    doc.processed = true;
+                    renderDocumentList();
+                }
             } else {
                 const errorDiv = document.createElement('div');
                 errorDiv.className = 'alert alert-danger';
-                errorDiv.textContent = `Erro ao processar tópico ${topic.topic}: ${result.message || 'Erro desconhecido'}`;
+                errorDiv.textContent = `Erro ao processar tópico ${topic.topic}: ${result.error || result.message || 'Erro desconhecido'}`;
                 topicCard.parentNode.insertBefore(errorDiv, topicCard.nextSibling);
             }
         } catch (error) {
@@ -456,6 +409,21 @@ async function generateQuestions(topicId) {
         return;
     }
     
+    // Criar elemento de loading
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'alert alert-info';
+    loadingDiv.innerHTML = `
+        <div class="d-flex align-items-center">
+            <div class="spinner-border spinner-border-sm me-2" role="status">
+                <span class="visually-hidden">Carregando...</span>
+            </div>
+            <span>Gerando questões...</span>
+        </div>
+    `;
+    
+    const topicCard = document.querySelector(`#topic-${topicId}`);
+    topicCard.appendChild(loadingDiv);
+    
     try {
         const response = await fetch('/api/generate-questions', {
             method: 'POST',
@@ -464,13 +432,22 @@ async function generateQuestions(topicId) {
                 'X-CSRFToken': getCsrfToken()
             },
             body: JSON.stringify({
-                summary_id: topicId,
-                domains: selectedDomains
+                topic: topicId,
+                num_questions: 5
             })
         });
         
+        // Remover loading
+        loadingDiv.remove();
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Erro ao gerar questões');
+        }
+        
         const result = await response.json();
-        if (result.success) {
+        
+        if (result.questions && result.questions.length > 0) {
             // Exibir as questões geradas
             const questionsContainer = document.createElement('div');
             questionsContainer.className = 'questions-container mt-3';
@@ -481,20 +458,31 @@ async function generateQuestions(topicId) {
                         <div class="list-group-item">
                             <h6>Questão ${idx + 1}</h6>
                             <p>${q.question}</p>
-                            <p><strong>Resposta:</strong> ${q.answer}</p>
+                            <div class="options">
+                                ${q.options.map((opt, i) => `
+                                    <div class="option ${i === q.correct_answer ? 'text-success' : ''}">
+                                        ${String.fromCharCode(65 + i)}. ${opt}
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div class="explanation mt-2">
+                                <strong>Explicação:</strong> ${q.explanation}
+                            </div>
                         </div>
                     `).join('')}
                 </div>
             `;
             
-            const topicCard = document.querySelector(`#topic-${topicId}`);
             topicCard.appendChild(questionsContainer);
         } else {
-            alert('Erro ao gerar questões: ' + result.error);
+            throw new Error('Nenhuma questão foi gerada');
         }
     } catch (error) {
         console.error('Erro ao gerar questões:', error);
-        alert('Erro ao gerar questões. Por favor, tente novamente.');
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'alert alert-danger mt-3';
+        errorDiv.textContent = `Erro ao gerar questões: ${error.message}`;
+        topicCard.appendChild(errorDiv);
     }
 }
 
