@@ -1237,6 +1237,10 @@ def get_domains():
 @login_required
 def generate_questions_endpoint():
     try:
+        # Verificar e corrigir schema antes de prosseguir
+        if not db_manager.verify_and_fix_schema():
+            return jsonify({'error': 'Erro ao verificar schema do banco de dados'}), 500
+            
         # Log do token CSRF
         csrf_token = request.headers.get('X-CSRFToken')
         logger.info(f"[GENERATE-QUESTIONS] CSRF Token recebido: {csrf_token}")
