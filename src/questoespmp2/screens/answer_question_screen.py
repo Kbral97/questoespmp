@@ -193,74 +193,92 @@ class AnswerQuestionScreen(MDScreen):
     
     def load_question(self):
         """Load a random question from the database."""
-        question = self.db_manager.get_random_question()
-        if not question:
-            self.show_no_questions_dialog()
-            return
-        
-        self.current_question = question
-        # Remover tags [b] e [/b] da questão
-        question_text = question['question'].replace('[b]', '').replace('[/b]', '')
-        self.question_label.text = question_text
-        self.has_answered = False
-        self.selected_answer = None
-        
-        # Limpar todas as opções anteriores
-        for button in self.option_buttons:
-            self.content_layout.remove_widget(button)
-        self.option_buttons = []
-        
-        # Processar opções
-        options = question['options']
-        if isinstance(options, str):
-            try:
-                options = json.loads(options)
-            except json.JSONDecodeError:
+        try:
+            question = self.db_manager.get_random_question()
+            if not question:
+                logger.error("Nenhuma questão disponível no banco de dados")
+                self.show_no_questions_dialog()
+                return
+            
+            logger.info(f"Questão carregada: {question}")
+            
+            self.current_question = question
+            # Remover tags [b] e [/b] da questão
+            question_text = question['question'].replace('[b]', '').replace('[/b]', '')
+            self.question_label.text = question_text
+            self.has_answered = False
+            self.selected_answer = None
+            
+            # Limpar todas as opções anteriores
+            for button in self.option_buttons:
+                self.content_layout.remove_widget(button)
+            self.option_buttons = []
+            
+            # Processar opções
+            options = question['options']
+            if isinstance(options, str):
+                try:
+                    options = json.loads(options)
+                    logger.info(f"Opções convertidas de JSON: {options}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Erro ao decodificar JSON das opções: {e}")
+                    options = []
+            
+            if not isinstance(options, list):
+                logger.error(f"Opções não são uma lista: {type(options)}")
                 options = []
-        
-        if not isinstance(options, list):
-            options = []
-        
-        # Garantir que temos exatamente 4 opções
-        while len(options) < 4:
-            options.append("Opção não disponível")
-        
-        # Processar todas as opções primeiro
-        processed_options = []
-        for i, option_text in enumerate(options[:4]):
-            option_text = option_text.strip()
-            # Remover tags [b] e [/b]
-            option_text = option_text.replace('[b]', '').replace('[/b]', '')
             
-            # Se o texto da opção for igual à pergunta ou começar com ela, tente limpar
-            if option_text == question_text or option_text.startswith(question_text):
-                cleaned_text = option_text[len(question_text):].strip() if option_text.startswith(question_text) else ""
-                if cleaned_text:  # Se ainda houver texto após a limpeza
-                    option_text = cleaned_text
-                else:
-                    option_text = options[i]  # Mantenha o texto original se a limpeza resultar em texto vazio
+            # Garantir que temos exatamente 4 opções
+            while len(options) < 4:
+                options.append("Opção não disponível")
             
-            processed_options.append(option_text)
-        
-        # Adicionar as opções ao layout
-        for i, option_text in enumerate(processed_options):
-            button = OptionButton(
-                text=f"{chr(65+i)}. {option_text}",
-                on_release=lambda idx=i: self.check_answer(idx),
-                index=i
-            )
-            self.option_buttons.append(button)
-            self.content_layout.add_widget(button)
+            logger.info(f"Opções processadas: {options}")
             
-            # Adicionar um pequeno espaço entre os botões de opção (exceto o último)
-            if i < len(processed_options) - 1:
-                option_spacer = MDBoxLayout(
-                    size_hint_y=None,
-                    height=dp(8)  # Espaço entre opções
+            # Processar todas as opções primeiro
+            processed_options = []
+            for i, option_text in enumerate(options[:4]):
+                option_text = option_text.strip()
+                # Remover tags [b] e [/b]
+                option_text = option_text.replace('[b]', '').replace('[/b]', '')
+                
+                # Se o texto da opção for igual à pergunta ou começar com ela, tente limpar
+                if option_text == question_text or option_text.startswith(question_text):
+                    cleaned_text = option_text[len(question_text):].strip() if option_text.startswith(question_text) else ""
+                    if cleaned_text:  # Se ainda houver texto após a limpeza
+                        option_text = cleaned_text
+                    else:
+                        option_text = options[i]  # Mantenha o texto original se a limpeza resultar em texto vazio
+                
+                processed_options.append(option_text)
+            
+            logger.info(f"Opções processadas finais: {processed_options}")
+            
+            # Adicionar as opções ao layout
+            for i, option_text in enumerate(processed_options):
+                button = OptionButton(
+                    text=f"{chr(65+i)}. {option_text}",
+                    on_release=lambda idx=i: self.check_answer(idx),
+                    index=i
                 )
-                self.content_layout.add_widget(option_spacer)
-                # Guardar referência para remover depois
-                self.option_buttons.append(option_spacer)
+                self.option_buttons.append(button)
+                self.content_layout.add_widget(button)
+                
+                # Adicionar um pequeno espaço entre os botões de opção (exceto o último)
+                if i < len(processed_options) - 1:
+                    option_spacer = MDBoxLayout(
+                        size_hint_y=None,
+                        height=dp(8)  # Espaço entre opções
+                    )
+                    self.content_layout.add_widget(option_spacer)
+                    # Guardar referência para remover depois
+                    self.option_buttons.append(option_spacer)
+            
+            logger.info(f"Questão carregada com sucesso - ID: {question['id']}")
+            
+        except Exception as e:
+            logger.error(f"Erro ao carregar questão: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
+            self.show_error_dialog("Erro ao carregar questão", str(e))
     
     def check_answer(self, index):
         """Handle answer selection."""
@@ -270,8 +288,16 @@ class AnswerQuestionScreen(MDScreen):
         self.has_answered = True
         self.selected_answer = index
         
-        # Converter letra da resposta correta para índice (A=0, B=1, C=2, D=3)
-        correct_index = ord(self.current_question['correct_answer']) - ord('A')
+        # Log para debug
+        logger.info(f"Verificando resposta - Questão ID: {self.current_question['id']}")
+        logger.info(f"Resposta selecionada: {index}")
+        logger.info(f"Resposta correta do banco: {self.current_question['correct_answer']}")
+        
+        # Usar diretamente o índice numérico da resposta correta
+        correct_index = self.current_question['correct_answer']
+        
+        # Log adicional para debug
+        logger.info(f"Índice correto convertido: {correct_index}")
         
         # Atualizar cores dos botões
         for i, btn in enumerate(self.option_buttons):
@@ -284,17 +310,28 @@ class AnswerQuestionScreen(MDScreen):
                     # Manter a cor original para as outras opções
                     btn.md_bg_color = MDApp.get_running_app().theme_cls.primary_light
         
+        # Log para debug da explicação
+        logger.info(f"Explicação disponível: {bool(self.current_question.get('explanation'))}")
+        
+        # Converter índice para letra (0=A, 1=B, 2=C, 3=D)
+        correct_letter = chr(65 + correct_index)
+        selected_letter = chr(65 + index)
+        
+        # Verificar se a resposta está correta
+        is_correct = index == correct_index
+        logger.info(f"Resposta está correta: {is_correct}")
+        
         # Mostrar explicação
         self.show_explanation_dialog(
-            correct=index == correct_index,
-            explanation=self.current_question['explanation']
+            correct=is_correct,
+            explanation=f"Resposta correta: {correct_letter}\n\n{self.current_question.get('explanation', 'Explicação não disponível')}"
         )
         
         # Atualizar estatísticas
         try:
             self.db_manager.update_question_stats(
                 self.current_question['id'],
-                index == correct_index
+                is_correct
             )
             logger.info(f"Estatísticas atualizadas para questão {self.current_question['id']}")
         except Exception as e:
@@ -302,10 +339,28 @@ class AnswerQuestionScreen(MDScreen):
     
     def show_explanation_dialog(self, correct: bool, explanation: str):
         """Show dialog with question explanation."""
-        result = "Correto!" if correct else "Incorreto!"
+        # Obter a letra da resposta selecionada
+        selected_letter = chr(65 + self.selected_answer) if self.selected_answer is not None else "N/A"
+        
+        # Construir mensagem mais detalhada
+        if correct:
+            result = "🎉 Parabéns! Você acertou!"
+            message = f"""
+Sua resposta ({selected_letter}) está correta!
+
+{explanation}
+"""
+        else:
+            result = "❌ Resposta incorreta"
+            message = f"""
+Sua resposta ({selected_letter}) está incorreta.
+
+{explanation}
+"""
+        
         dialog = MDDialog(
             title=result,
-            text=explanation,
+            text=message,
             buttons=[
                 MDFlatButton(
                     text="Próxima",
@@ -335,6 +390,21 @@ class AnswerQuestionScreen(MDScreen):
                 MDFlatButton(
                     text="Voltar",
                     on_release=lambda x: (dialog.dismiss(), self.go_back())
+                )
+            ]
+        )
+        dialog.open()
+        self.dialogs.append(dialog)
+    
+    def show_error_dialog(self, title: str, message: str):
+        """Mostra um diálogo de erro ao usuário."""
+        dialog = MDDialog(
+            title=title,
+            text=message,
+            buttons=[
+                MDFlatButton(
+                    text="OK",
+                    on_release=lambda x: dialog.dismiss()
                 )
             ]
         )

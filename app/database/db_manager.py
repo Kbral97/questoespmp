@@ -328,83 +328,75 @@ class DatabaseManager:
             question_dict['options'] = json.loads(question_dict['options'])
             return question_dict
 
-    def get_random_question(self) -> Optional[Dict[str, Any]]:
-        """Get a random question from the database."""
+    def get_random_question(self):
+        """Retorna uma questão aleatória do banco de dados."""
         try:
-            with sqlite3.connect(self.questions_db) as conn:
+            with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Log para debug
-                logger.info("[GET-QUESTION] Iniciando busca de questão aleatória")
-                
-                # Verificar se existem questões no banco
+                # Log do total de questões
                 cursor.execute('SELECT COUNT(*) FROM questions')
-                count = cursor.fetchone()[0]
-                logger.info(f"[GET-QUESTION] Total de questões no banco: {count}")
+                total_questions = cursor.fetchone()[0]
+                logger.info(f"Total de questões no banco: {total_questions}")
                 
-                if count == 0:
-                    logger.warning("[GET-QUESTION] Nenhuma questão encontrada no banco")
+                if total_questions == 0:
+                    logger.warning("Nenhuma questão encontrada no banco de dados")
                     return None
-                
-                # Buscar questão aleatória
+                    
                 cursor.execute('''
-                    SELECT id, question, options, correct_answer, explanation, 
-                           topic, created_at, metadata, summary_id_1, summary_id_2
+                    SELECT id, question, options, correct_answer, explanation, topic
                     FROM questions 
-                    ORDER BY RANDOM() LIMIT 1
+                    ORDER BY RANDOM() 
+                    LIMIT 1
                 ''')
-                row = cursor.fetchone()
+                question = cursor.fetchone()
                 
-                if not row:
-                    logger.warning("[GET-QUESTION] Nenhuma questão retornada pela consulta")
+                if not question:
+                    logger.warning("Nenhuma questão retornada pela query")
                     return None
+                    
+                # Log detalhado da questão
+                logger.info(f"Questão encontrada - ID: {question['id']}")
+                logger.info(f"Resposta correta original: {question['correct_answer']}")
+                logger.info(f"Tipo da resposta correta: {type(question['correct_answer'])}")
                 
-                # Log para debug
-                logger.info(f"[GET-QUESTION] Questão encontrada: {row}")
-                
-                # Converter correct_answer para inteiro
+                # Processar opções
                 try:
-                    correct_answer = int(row[3])
-                    logger.info(f"[GET-QUESTION] correct_answer convertido para inteiro: {correct_answer}")
-                except (ValueError, TypeError) as e:
-                    logger.error(f"[GET-QUESTION] Erro ao converter correct_answer para inteiro: {str(e)}")
+                    options = json.loads(question['options'])
+                    if not isinstance(options, list) or len(options) != 4:
+                        logger.error(f"Opções inválidas para questão {question['id']}: {options}")
+                        return None
+                except json.JSONDecodeError as e:
+                    logger.error(f"Erro ao decodificar opções da questão {question['id']}: {str(e)}")
                     return None
+                    
+                # Validar e converter o índice da resposta correta
+                try:
+                    correct_answer = int(question['correct_answer'])
+                    if correct_answer < 0 or correct_answer >= len(options):
+                        logger.error(f"Índice de resposta correta inválido para questão {question['id']}: {correct_answer}")
+                        return None
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Erro ao converter índice da resposta correta da questão {question['id']}: {str(e)}")
+                    return None
+                    
+                # Log final da questão processada
+                logger.info(f"Questão processada com sucesso - ID: {question['id']}")
+                logger.info(f"Resposta correta final: {correct_answer}")
+                logger.info(f"Número de opções: {len(options)}")
                 
-                # Converter a questão para o formato esperado
-                question = {
-                    'id': row[0],
-                    'question': row[1],
-                    'options': json.loads(row[2]) if row[2] else [],
-                    'correct_answer': correct_answer,  # Usar o valor convertido
-                    'explanation': row[4],
-                    'topic': row[5],
-                    'created_at': row[6],
-                    'metadata': json.loads(row[7]) if row[7] else {},
-                    'summary_id_1': row[8],
-                    'summary_id_2': row[9]
+                return {
+                    'id': question['id'],
+                    'question': question['question'],
+                    'options': options,
+                    'correct_answer': correct_answer,
+                    'explanation': question['explanation'],
+                    'topic': question['topic']
                 }
                 
-                # Validar campos obrigatórios
-                required_fields = ['id', 'question', 'options', 'correct_answer', 'explanation', 'topic']
-                missing_fields = [field for field in required_fields if not question.get(field)]
-                
-                if missing_fields:
-                    logger.error(f"[GET-QUESTION] Campos obrigatórios ausentes: {missing_fields}")
-                    return None
-                
-                # Validar tipos de dados
-                if not isinstance(question['correct_answer'], int):
-                    logger.error(f"[GET-QUESTION] Campo correct_answer não é um número: {question['correct_answer']}")
-                    return None
-                
-                # Log da questão processada
-                logger.info(f"[GET-QUESTION] Questão processada: {question}")
-                
-                return question
-                
         except Exception as e:
-            logger.error(f"[GET-QUESTION] Erro ao buscar questão aleatória: {str(e)}")
-            logger.error("[GET-QUESTION] Stack trace:", exc_info=True)
+            logger.error(f"Erro ao buscar questão aleatória: {str(e)}")
+            logger.error("Stack trace:", exc_info=True)
             return None
 
     def get_question_by_id(self, question_id: str) -> Optional[Dict[str, Any]]:
@@ -605,6 +597,20 @@ class DatabaseManager:
                         correct_answers INTEGER DEFAULT 0,
                         last_session TIMESTAMP,
                         UNIQUE(topic)
+                    )
+                ''')
+                
+                # Create reported questions table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS reported_questions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        question_id INTEGER NOT NULL,
+                        reason TEXT NOT NULL,
+                        details TEXT,
+                        reported_by INTEGER NOT NULL,
+                        reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (question_id) REFERENCES questions(id),
+                        FOREIGN KEY (reported_by) REFERENCES user(id)
                     )
                 ''')
                 

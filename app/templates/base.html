@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     {% block head %}{% endblock %}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Questões PMP{% endblock %}</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
@@ -113,6 +114,32 @@
             const mdcSnackbar = mdc.snackbar.MDCSnackbar.attachTo(snackbar);
             mdcSnackbar.open();
         });
+
+        // Função para obter o token CSRF
+        function getCsrfToken() {
+            const metaTag = document.querySelector('meta[name="csrf-token"]');
+            if (!metaTag) {
+                console.error('CSRF token meta tag not found');
+                return null;
+            }
+            const token = metaTag.getAttribute('content');
+            console.log('CSRF token found:', token);
+            return token;
+        }
+
+        // Configurar o fetch para incluir o token CSRF em todas as requisições
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options = {}) {
+            if (options.method && options.method !== 'GET') {
+                options.headers = options.headers || {};
+                const token = getCsrfToken();
+                if (token) {
+                    options.headers['X-CSRFToken'] = token;
+                    console.log('Adding CSRF token to request:', token);
+                }
+            }
+            return originalFetch(url, options);
+        };
     </script>
     {% block scripts %}{% endblock %}
 </body>

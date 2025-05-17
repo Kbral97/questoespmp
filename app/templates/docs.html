@@ -468,109 +468,12 @@ async function generateQuestions(topicId) {
                             <div class="explanation mt-2">
                                 <strong>Explicação:</strong> ${q.explanation}
                             </div>
+                            <div class="source mt-2">
+                                <small class="text-muted">
+                                    <strong>ID do Resumo:</strong> ${result.summary_id || 'N/A'}
+                                </small>
+                            </div>
                         </div>
                     `).join('')}
                 </div>
-            `;
-            
-            topicCard.appendChild(questionsContainer);
-        } else {
-            throw new Error('Nenhuma questão foi gerada');
-        }
-    } catch (error) {
-        console.error('Erro ao gerar questões:', error);
-        const errorDiv = document.createElement('div');
-        errorDiv.className = 'alert alert-danger mt-3';
-        errorDiv.textContent = `Erro ao gerar questões: ${error.message}`;
-        topicCard.appendChild(errorDiv);
-    }
-}
-
-// Inicializar lista ao carregar a página
-fetchDocumentList();
-
-// Drag and drop global para upload de documentos
-function handleDropUpload(files) {
-  if (!files || files.length === 0) return;
-  const input = document.getElementById('documentInput');
-  const dataTransfer = new DataTransfer();
-  for (let i = 0; i < files.length; i++) {
-    dataTransfer.items.add(files[i]);
-  }
-  input.files = dataTransfer.files;
-  // Disparar submit automático
-  document.getElementById('uploadForm').dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}));
-}
-
-document.addEventListener('dragover', function(e) {
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'copy';
-  // Log para depuração
-  // console.log('Arrastando arquivo sobre a página');
-});
-
-document.addEventListener('drop', function(e) {
-  e.preventDefault();
-  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-    // Log para depuração
-    console.log('Arquivo(s) solto(s) na página:', e.dataTransfer.files);
-    handleDropUpload(e.dataTransfer.files);
-  }
-});
-
-document.getElementById('processSelectedBtn').addEventListener('click', async function() {
-    const checkboxes = document.querySelectorAll('.doc-checkbox:checked');
-    if (checkboxes.length === 0) {
-        alert('Selecione pelo menos um documento para processar');
-        return;
-    }
-
-    const selectedDocs = Array.from(checkboxes).map(cb => {
-        const idx = parseInt(cb.dataset.idx);
-        return documentos[idx].name;
-    });
-
-    const processResultsDiv = document.getElementById('processResults');
-    processResultsDiv.innerHTML = '<div class="alert alert-info">Processando documentos...</div>';
-
-    try {
-        const response = await fetch('/api/process-documents', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken()
-            },
-            body: JSON.stringify({ documents: selectedDocs })
-        });
-
-        const data = await response.json();
-        
-        if (!data.success) {
-            processResultsDiv.innerHTML = `<div class="alert alert-danger">Erro: ${data.error}</div>`;
-            return;
-        }
-
-        // Processar os resultados
-        let allTopics = [];
-        data.results.forEach(result => {
-            if (result.status === 'Extraído' && result.topics) {
-                allTopics = allTopics.concat(result.topics.map(topic => ({
-                    ...topic,
-                    doc_name: result.name
-                })));
-            }
-        });
-
-        if (allTopics.length > 0) {
-            renderExtractedTopics(allTopics, selectedDocs[0]);
-        } else {
-            processResultsDiv.innerHTML = '<div class="alert alert-warning">Nenhum tópico encontrado nos documentos.</div>';
-        }
-
-    } catch (error) {
-        console.error('Erro ao processar documentos:', error);
-        processResultsDiv.innerHTML = `<div class="alert alert-danger">Erro ao processar documentos: ${error.message}</div>`;
-    }
-});
-</script>
-{% endblock %} 
+            `

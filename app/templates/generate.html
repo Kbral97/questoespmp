@@ -428,14 +428,17 @@ document.addEventListener('DOMContentLoaded', function() {
         // Enviar requisição para gerar questões
         const csrfMeta = document.querySelector('meta[name="csrf-token"]');
         if (!csrfMeta) {
+            console.error('[CSRF] Meta tag não encontrada');
             alert('Erro interno: CSRF token não encontrado no template.');
             safeCloseDialog();
             return;
         }
         
+        const csrfToken = csrfMeta.getAttribute('content');
+        console.log('[CSRF] Token encontrado:', csrfToken);
+        
         updateProgress(1, 'Gerando questões...');
         
-        const csrfToken = csrfMeta.getAttribute('content');
         fetch('/api/generate-questions', {
             method: 'POST',
             headers: {
@@ -443,11 +446,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 'X-CSRFToken': csrfToken
             },
             body: JSON.stringify({
-            domain: domain,
+                domain: domain,
                 num_questions: parseInt(numQuestions)
             })
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(result => {
             if (result.error) {
                 throw new Error(result.error);
@@ -463,8 +471,8 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Erro ao gerar questões:', error);
             updateProgress(0, `Erro: ${error.message}`);
             setTimeout(safeCloseDialog, 2000);
+        });
     });
-});
 
 function updateProgress(percent, message) {
     const progressBar = document.getElementById('progressBar');
@@ -519,15 +527,73 @@ function showGeneratedQuestions(questions) {
             questionCard.style.marginBottom = '16px';
             questionCard.style.padding = '16px';
             
+            // Combinar cenário e pergunta
+            const fullQuestion = question.scenario ? 
+                `${question.scenario}\n\n${question.question}` : 
+                question.question;
+            
+            // Combinar resposta correta com distratores
+            const allOptions = [
+                ...question.distractors || [],
+                question.correct_answer
+            ];
+            
             questionCard.innerHTML = `
                 <h3 class="mdc-typography--headline6">Questão ${index + 1}</h3>
-                <p class="mdc-typography--body1">${question.question}</p>
-                <div class="mdc-typography--body2" style="margin-top: 8px;">
-                    <strong>Resposta correta:</strong> ${question.correct_answer}
+                <p class="mdc-typography--body1" style="white-space: pre-line;">${fullQuestion}</p>
+                
+                <div class="mdc-typography--body2" style="margin-top: 16px;">
+                    <strong>Opções:</strong>
+                    <div style="margin-top: 8px;">
+                        ${allOptions.map((option, i) => `
+                            <div class="option ${option === question.correct_answer ? 'text-success' : ''}" 
+                                 style="margin-bottom: 8px;">
+                                ${String.fromCharCode(65 + i)}. ${option}
+                            </div>
+                        `).join('')}
+                    </div>
                 </div>
-                <div class="mdc-typography--body2" style="margin-top: 8px;">
-                    <strong>Explicação:</strong> ${question.explanation}
+                
+                <div class="mdc-typography--body2" style="margin-top: 16px;">
+                    <strong>Explicação:</strong>
+                    <p style="margin-top: 8px;">${question.justification || question.explanation}</p>
                 </div>
+                
+                ${question.document_title ? `
+                    <div class="mdc-typography--body2" style="margin-top: 16px;">
+                        <strong>Fonte:</strong>
+                        <p style="margin-top: 8px; color: #666;">${question.document_title}</p>
+                    </div>
+                ` : ''}
+                
+                ${question.used_summary ? `
+                    <div class="mdc-typography--body2" style="margin-top: 16px;">
+                        <strong>Contexto usado:</strong>
+                        <pre style="margin-top: 8px; padding: 12px; background-color: #f5f5f5; border-radius: 4px; white-space: pre-wrap; font-size: 0.9em; color: #666;">${question.used_summary}</pre>
+                    </div>
+                ` : ''}
+                
+                ${question.pmbok_references ? `
+                    <div class="mdc-typography--body2" style="margin-top: 16px;">
+                        <strong>Referências PMBOK:</strong>
+                        <ul style="margin-top: 8px;">
+                            ${question.pmbok_references.map(ref => `
+                                <li>${ref}</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                
+                ${question.practical_examples ? `
+                    <div class="mdc-typography--body2" style="margin-top: 16px;">
+                        <strong>Exemplos Práticos:</strong>
+                        <ul style="margin-top: 8px;">
+                            ${question.practical_examples.map(example => `
+                                <li>${example}</li>
+                            `).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
             `;
             
             questionsContainer.appendChild(questionCard);

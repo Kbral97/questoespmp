@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from openai import OpenAI
 from datetime import datetime
-from typing import List, Dict, Optional, Callable, Any, Tuple
+from typing import List, Dict, Optional, Callable, Any, Tuple, Union
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -21,6 +21,7 @@ from ..database.db_manager import DatabaseManager
 import random
 from app.models import Domain, AIModel
 from app import db
+import traceback
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -325,214 +326,210 @@ def get_least_used_summaries(topic: str, num_summaries: int = 2) -> Tuple[Dict[s
         logger.error(f"[SUMMARIES] Erro ao selecionar resumos: {str(e)}")
         return None, None
 
-def generate_questions(topic, num_questions=5, api_key=None, summary=None):
+def normalize_model_response(question_data):
     """
-    Gera questões sobre um tópico usando a API do OpenAI.
+    Normaliza a resposta do modelo para garantir o formato correto.
+    A pergunta já contém o cenário, então retornamos apenas um campo.
+    """
+    if isinstance(question_data, str):
+        question = question_data.strip()
+        return {
+            'question': question
+        }
+    elif isinstance(question_data, dict):
+        # Se for um dicionário, usa o campo question ou scenario
+        if 'question' in question_data:
+            return {
+                'question': question_data['question']
+            }
+        elif 'scenario' in question_data:
+            return {
+                'question': question_data['scenario']
+            }
+    return None
+
+def generate_questions(topic, num_questions, api_key, summary=None):
+    logger.info(f"[GENERATE] Iniciando geração de {num_questions} questões sobre {topic}")
     
-    Args:
-        topic: O tópico para gerar questões
-        num_questions: Número de questões a gerar
-        api_key: Chave da API OpenAI
-        summary: Resumo do tópico (opcional)
-    """
     try:
-        logger.info(f"[GENERATE] Iniciando geração de {num_questions} questões sobre {topic}")
-        
+        # Inicializar cliente OpenAI
         if not api_key:
             api_key = os.getenv('OPENAI_API_KEY')
             if not api_key:
                 raise ValueError("API key não encontrada")
         
-        # Inicializar cliente
         client = OpenAI(api_key=api_key)
+        logger.info("[GENERATE] Cliente OpenAI inicializado")
         
-        # Buscar modelos padrão do banco de dados
+        # Buscar modelos padrão
         with db_manager.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                SELECT model_id, model_type 
+            cursor.execute("""
+                SELECT model_type, model_id 
                 FROM ai_models 
                 WHERE is_default = 1
-            ''')
-            default_models = cursor.fetchall()
-            
-            if not default_models:
-                logger.error("[GENERATE] Nenhum modelo padrão encontrado no banco de dados")
-                return None
+            """)
+            default_models = {row[0]: row[1] for row in cursor.fetchall()}
+            logger.info(f"[GENERATE] Modelos padrão encontrados: {default_models}")
+        
+        # Preparar o contexto do resumo e extrair informações para o frontend
+        summary_context = ""
+        frontend_summary = {
+            'summary': '',
+            'key_points': []
+        }
+        
+        if summary:
+            if isinstance(summary, dict):
+                # Contexto para geração
+                summary_context = f"""Contexto do tópico principal:
+{summary.get('summary', 'Sem resumo disponível')}
+
+Pontos-chave do tópico principal:
+{chr(10).join([f"- {point['point']}: {point['explanation']}" for point in summary.get('key_points', [])]) if summary.get('key_points') else 'Sem pontos-chave disponíveis'}
+
+Exemplos práticos:
+{chr(10).join([f"- {example['example']}: {example['context']}" for example in summary.get('practical_examples', [])]) if summary.get('practical_examples') else 'Sem exemplos disponíveis'}
+
+Referências PMBOK:
+{chr(10).join([f"- {ref['section']}: {ref['description']}" for ref in summary.get('pmbok_references', [])]) if summary.get('pmbok_references') else 'Sem referências disponíveis'}"""
                 
-            # Mapear modelos por tipo
-            model_map = {model[1]: model[0] for model in default_models}
-            logger.info(f"[GENERATE] Modelos padrão encontrados: {model_map}")
-            
-            # Validar se todos os tipos necessários estão presentes
-            required_types = ['question', 'answer', 'distractor']
-            missing_types = [t for t in required_types if t not in model_map]
-            if missing_types:
-                logger.error(f"[GENERATE] Tipos de modelo ausentes: {missing_types}")
-                return None
+                # Dados para o frontend
+                frontend_summary = {
+                    'summary': summary.get('summary', ''),
+                    'key_points': [f"{point['point']}: {point['explanation']}" for point in summary.get('key_points', [])]
+                }
+            else:
+                # Se o resumo for uma string, usa diretamente
+                summary_context = f"""Contexto do tópico principal:
+{summary}"""
+                frontend_summary = {
+                    'summary': summary,
+                    'key_points': []
+                }
         
-        # Se não tiver resumo, busca no banco
-        if not summary:
-            with db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT summary, key_points, practical_examples, pmbok_references
-                    FROM topic_summaries 
-                    WHERE topic = ?
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                ''', (topic,))
-                summary_data = cursor.fetchone()
-                
-                if not summary_data:
-                    logger.warning(f"[GENERATE] Nenhum resumo encontrado para o tópico {topic}")
-                    return None
-                
-                summary, key_points, practical_examples, pmbok_references = summary_data
-        else:
-            # Se tiver resumo, usa ele e busca os outros dados
-            with db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT key_points, practical_examples, pmbok_references
-                    FROM topic_summaries 
-                    WHERE topic = ?
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                ''', (topic,))
-                summary_data = cursor.fetchone()
-                
-                if summary_data:
-                    key_points, practical_examples, pmbok_references = summary_data
-                else:
-                    key_points = practical_examples = pmbok_references = None
-        
-        # Preparar o contexto combinando o resumo e pontos-chave
-        context = f"""
-        RESUMO DO TÓPICO:
-        {summary}
-        
-        PONTOS-CHAVE:
-        {json.loads(key_points) if key_points else 'Nenhum ponto-chave disponível'}
-        
-        EXEMPLOS PRÁTICOS:
-        {json.loads(practical_examples) if practical_examples else 'Nenhum exemplo prático disponível'}
-        
-        REFERÊNCIAS PMBOK:
-        {json.loads(pmbok_references) if pmbok_references else 'Nenhuma referência PMBOK disponível'}
-        """
-        
-        # Gerar questões usando os modelos treinados
         questions = []
         for i in range(num_questions):
-            # 1. Gerar cenário e pergunta
-            question_data = generate_question_with_ai(
-                topic=topic,
-                subtopic=None,
-                client=client,
-                api_key=api_key,
-                model=model_map['question'],
-                topic_summary={'summary': summary, 'key_points': json.loads(key_points) if key_points else []},
-                related_summary=None
+            logger.info(f"[QUESTION_AI] Iniciando geração de pergunta {i+1} para tópico {topic}")
+            
+            # Preparar o prompt com instruções mais enfáticas
+            prompt = f"""Gere uma pergunta sobre {topic}.
+
+A pergunta deve ser clara e objetiva, sem incluir as alternativas.
+A pergunta deve ser contextualizada com a prática de gerenciamento de projetos.
+A pergunta deve incluir o cenário da situação.
+
+{summary_context}
+
+CRÍTICO: Você DEVE retornar APENAS a pergunta, sem nenhum texto adicional.
+NÃO inclua nenhum texto antes ou depois da pergunta.
+NÃO inclua aspas ou formatação adicional.
+
+Exemplo de resposta esperada:
+Você é um gerente de projetos responsável por implementar um novo sistema de gestão em uma empresa. O projeto tem um prazo de 6 meses e um orçamento limitado. Qual é o primeiro documento que você deve desenvolver para iniciar o projeto?"""
+            
+            logger.info(f"[QUESTION_AI] Prompt preparado: {prompt}")
+            
+            # Enviar para OpenAI
+            logger.info("[QUESTION_AI] Enviando requisição para OpenAI")
+            response = client.chat.completions.create(
+                model=default_models['question'],
+                messages=[
+                    {"role": "system", "content": "Você é um especialista em criar questões de gerenciamento de projetos. Sua resposta DEVE ser APENAS a pergunta, que já deve incluir o cenário da situação."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=500,
+                temperature=0.7
             )
             
-            if not question_data:
-                logger.error("[GENERATE] Falha ao gerar pergunta")
-                continue
-                
-            # 2. Gerar resposta correta
-            answer_data = generate_answer_with_ai(
-                question_data=question_data,
-                topic=topic,
-                subtopic=None,
-                client=client,
-                api_key=api_key,
-                model=model_map['answer'],
-                topic_summary={'summary': summary, 'key_points': json.loads(key_points) if key_points else []},
-                related_summary=None
-            )
+            response_text = response.choices[0].message.content.strip()
+            logger.info(f"[QUESTION_AI] Resposta recebida (raw): {response_text}")
             
-            if not answer_data:
-                logger.error("[GENERATE] Falha ao gerar resposta")
-                continue
+            try:
+                # Normalizar a resposta
+                normalized_data = normalize_model_response(response_text)
+                if not normalized_data:
+                    logger.error("[QUESTION_AI] Falha ao normalizar resposta do modelo")
+                    continue
                 
-            # 3. Gerar distratores
-            distractors_data, warnings = generate_distractors(
-                question_data=question_data,
-                answer_data=answer_data,
-                topic=topic,
-                subtopic=None,
-                client=client,
-                api_key=api_key,
-                model=model_map['distractor'],
-                topic_summary={'summary': summary, 'key_points': json.loads(key_points) if key_points else []},
-                related_summary=None
-            )
-            
-            if not distractors_data:
-                logger.error("[GENERATE] Falha ao gerar distratores")
-                continue
+                logger.info(f"[QUESTION_AI] Dados normalizados: {normalized_data}")
+
+                # Gerar resposta com justificativa
+                logger.info("[ANSWER_AI] Iniciando geração de resposta")
+                answer_data = generate_answer_with_ai(
+                    normalized_data,
+                    topic,
+                    None,  # subtopic não é mais usado
+                    client,
+                    api_key,
+                    default_models['answer'],
+                    summary,
+                    None  # related_summary não é mais usado
+                )
                 
-            # Combinar todas as alternativas
-            all_options = distractors_data['distractors'] + [answer_data['correct_answer']]
-            # Embaralhar as alternativas
-            random.shuffle(all_options)
-            # Encontrar o índice da resposta correta
-            correct_index = all_options.index(answer_data['correct_answer'])
-            
-            # Criar questão completa com todos os dados de debug
-            question = {
-                'question': question_data['question'],
-                'options': all_options,
-                'correct_answer': correct_index,
-                'explanation': answer_data['justification'],
-                'topic': topic,
-                'debug_data': {
-                    'models_used': {
-                        'question': model_map['question'],
-                        'answer': model_map['answer'],
-                        'distractor': model_map['distractor']
-                    },
-                    'topic_summary': {
-                        'summary': summary,
-                        'key_points': json.loads(key_points) if key_points else [],
-                        'practical_examples': json.loads(practical_examples) if practical_examples else [],
-                        'pmbok_references': json.loads(pmbok_references) if pmbok_references else []
-                    },
-                    'question_generation': {
-                        'prompt': question_data.get('prompt'),
-                        'raw_response': question_data.get('raw_response'),
-                        'scenario': question_data.get('scenario'),
-                        'full_question': question_data.get('full_question')
-                    },
-                    'answer_generation': {
-                        'prompt': answer_data.get('prompt'),
-                        'raw_response': answer_data.get('raw_response'),
-                        'correct_answer': answer_data.get('correct_answer'),
-                        'justification': answer_data.get('justification'),
-                        'pmbok_references': answer_data.get('pmbok_references'),
-                        'practical_examples': answer_data.get('practical_examples')
-                    },
-                    'distractors_generation': {
-                        'prompt': distractors_data.get('prompt'),
-                        'raw_response': distractors_data.get('raw_response'),
-                        'distractors': distractors_data.get('distractors'),
-                        'warnings': warnings
-                    }
+                if not answer_data:
+                    logger.error("[ANSWER_AI] Falha ao gerar resposta")
+                    continue
+                
+                logger.info(f"[ANSWER_AI] Resposta gerada: {answer_data}")
+                
+                # Gerar distratores
+                logger.info("[DISTRACTORS] Iniciando geração de distratores")
+                distractors_data, warnings = generate_distractors(
+                    normalized_data,
+                    answer_data,
+                    topic,
+                    None,  # subtopic não é mais usado
+                    client,
+                    api_key,
+                    default_models['distractor'],
+                    summary,
+                    None  # related_summary não é mais usado
+                )
+                
+                if not distractors_data:
+                    logger.error("[DISTRACTORS] Falha ao gerar distratores")
+                    continue
+                
+                # Combinar todos os dados
+                question_data = {
+                    'question': normalized_data.get('question', ''),
+                    'correct_answer': answer_data.get('correct_answer', ''),
+                    'explanation': answer_data.get('justification', ''),
+                    'justification': answer_data.get('justification', ''),
+                    'distractors': distractors_data.get('distractors', []),
+                    'warnings': warnings,
+                    'options': distractors_data.get('distractors', []) + [answer_data.get('correct_answer', '')],
+                    'topic_summary': frontend_summary['summary'],
+                    'topic_key_points': frontend_summary['key_points']
                 }
-            }
-            
-            questions.append(question)
+                
+                # Garantir que todos os campos sejam strings ou listas vazias
+                for key, value in question_data.items():
+                    if value is None:
+                        question_data[key] = [] if isinstance(question_data.get(key, []), list) else ''
+                    elif isinstance(value, list):
+                        question_data[key] = [str(item) for item in value]
+                    else:
+                        question_data[key] = str(value)
+                
+                questions.append(question_data)
+                logger.info(f"[QUESTION_AI] Questão {i+1} gerada com sucesso")
+                
+            except Exception as e:
+                logger.error(f"[QUESTION_AI] Erro ao processar resposta: {str(e)}")
+                continue
             
         if not questions:
             logger.error("[GENERATE] Nenhuma questão foi gerada com sucesso")
             return None
             
-        logger.info(f"[GENERATE] {len(questions)} questões geradas com sucesso")
+        # Retornar apenas o array de questões, com o resumo e key points incluídos em cada questão
         return questions
         
     except Exception as e:
         logger.error(f"[GENERATE] Erro ao gerar questões: {str(e)}")
+        logger.error(f"[GENERATE] Stack trace: {traceback.format_exc()}")
         return None
 
 def format_training_data(questions):
@@ -731,39 +728,44 @@ def generate_answer_with_ai(
     """
     Gera a resposta correta com justificativa detalhada.
     Esta é a função atual para geração de respostas.
-    
-    Args:
-        question_data: Dados da pergunta gerada
-        topic: Tópico principal
-        subtopic: Subtópico (não mais usado, mantido para compatibilidade)
-        client: Cliente OpenAI
-        api_key: Chave da API
-        model: Modelo a ser usado
-        topic_summary: Resumo do tópico principal
-        related_summary: Resumo do tópico relacionado
     """
     logger.info(f"[ANSWER_AI] Iniciando geração de resposta para tópico {topic}")
     
     try:
-        # Combinar contexto dos resumos
-        logger.info("[ANSWER_AI] Combinando contexto dos resumos")
-        combined_context = f"""Contexto do tópico principal:
-{topic_summary['summary'] if topic_summary else 'Sem resumo disponível'}
+        # Preparar o contexto do resumo
+        summary_context = ""
+        if topic_summary:
+            if isinstance(topic_summary, dict):
+                summary_context = f"""Contexto do tópico principal:
+{topic_summary.get('summary', 'Sem resumo disponível')}
 
 Pontos-chave do tópico principal:
-{chr(10).join([f"- {point['concept']}: {point['definition']}" for point in topic_summary['key_points']]) if topic_summary else 'Sem pontos-chave disponíveis'}"""
+{chr(10).join([f"- {point['point']}: {point['explanation']}" for point in topic_summary.get('key_points', [])]) if topic_summary.get('key_points') else 'Sem pontos-chave disponíveis'}
+
+Exemplos práticos:
+{chr(10).join([f"- {example['example']}: {example['context']}" for example in topic_summary.get('practical_examples', [])]) if topic_summary.get('practical_examples') else 'Sem exemplos disponíveis'}
+
+Referências PMBOK:
+{chr(10).join([f"- {ref['section']}: {ref['description']}" for ref in topic_summary.get('pmbok_references', [])]) if topic_summary.get('pmbok_references') else 'Sem referências disponíveis'}"""
+            else:
+                # Se o resumo for uma string, usa diretamente
+                summary_context = f"""Contexto do tópico principal:
+{topic_summary}"""
 
         if related_summary:
-            combined_context += f"\n\nTópico relacionado: {related_summary['topic']}\n"
-            combined_context += f"Resumo: {related_summary['summary']}\n"
-            combined_context += "Pontos-chave:\n"
-            combined_context += chr(10).join([f"- {point['concept']}: {point['definition']}" for point in related_summary['key_points']])
+            if isinstance(related_summary, dict):
+                summary_context += f"\n\nTópico relacionado: {related_summary.get('topic', 'Sem tópico')}\n"
+                summary_context += f"Resumo: {related_summary.get('summary', 'Sem resumo')}\n"
+                summary_context += "Pontos-chave:\n"
+                summary_context += chr(10).join([f"- {point['point']}: {point['explanation']}" for point in related_summary.get('key_points', [])])
+            else:
+                summary_context += f"\n\nTópico relacionado:\n{related_summary}"
         
         prompt = f"""Analise o seguinte cenário e pergunta sobre {topic}:
 
-{question_data['full_question']}
+{question_data['question']}
 
-{combined_context}
+{summary_context}
 
 Gere uma resposta detalhada que inclua:
 1. A resposta correta
@@ -771,19 +773,23 @@ Gere uma resposta detalhada que inclua:
 3. Referências específicas ao PMBOK e boas práticas de gerenciamento de projetos
 4. Exemplos práticos que ajudem a entender o conceito
 
-A resposta DEVE seguir EXATAMENTE este formato JSON:
+IMPORTANTE: Você DEVE retornar APENAS um objeto JSON válido com exatamente este formato:
 {{
     "correct_answer": "Texto da resposta correta",
     "justification": "Explicação detalhada de por que esta é a resposta correta",
     "pmbok_references": ["Referência 1", "Referência 2"],
     "practical_examples": ["Exemplo 1", "Exemplo 2"]
-}}"""
+}}
+
+NÃO inclua nenhum texto antes ou depois do JSON.
+NÃO inclua aspas ou formatação adicional.
+O JSON DEVE ser válido e seguir exatamente o formato especificado."""
 
         logger.info("[ANSWER_AI] Enviando requisição para OpenAI")
         response = client.chat.completions.create(
-            model=model,  # Usando o modelo treinado passado como parâmetro
+            model=model,
             messages=[
-                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos com profundo conhecimento do PMBOK e certificação PMP."},
+                {"role": "system", "content": "Você é um especialista em gerenciamento de projetos com profundo conhecimento do PMBOK e certificação PMP. Sua resposta DEVE ser APENAS um objeto JSON válido."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
@@ -794,10 +800,20 @@ A resposta DEVE seguir EXATAMENTE este formato JSON:
         logger.info(f"[ANSWER_AI] Resposta recebida: {response_text[:200]}...")
         
         try:
-            answer_data = json.loads(response_text)
+            # Tentar extrair JSON da resposta
+            import re
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                answer_data = json.loads(json_str)
+            else:
+                logger.error(f"[ANSWER_AI] Nenhum JSON encontrado na resposta: {response_text}")
+                return None
+
             logger.info("[ANSWER_AI] JSON decodificado com sucesso")
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             logger.error(f"[ANSWER_AI] Erro ao decodificar JSON: {response_text}")
+            logger.error(f"[ANSWER_AI] Erro específico: {str(e)}")
             return None
 
         if not isinstance(answer_data, dict):
@@ -818,14 +834,16 @@ A resposta DEVE seguir EXATAMENTE este formato JSON:
             if not isinstance(answer_data[field], expected_type):
                 logger.error(f"[ANSWER_AI] Tipo inválido para {field}: esperado {expected_type}, recebido {type(answer_data[field])}")
                 return None
-            if expected_type == list and not answer_data[field]:
-                logger.error(f"[ANSWER_AI] Lista vazia não permitida para {field}")
-                return None
 
         for field in ["pmbok_references", "practical_examples"]:
             if not all(isinstance(item, str) for item in answer_data[field]):
                 logger.error(f"[ANSWER_AI] Itens inválidos na lista {field}")
                 return None
+
+        # Validar usando a função validate_answer
+        if not validate_answer(answer_data):
+            logger.error("[ANSWER_AI] Falha na validação da resposta")
+            return None
 
         answer_data["prompt"] = prompt
         answer_data["raw_response"] = response_text
@@ -845,40 +863,35 @@ def generate_distractors(
     client: Any,
     api_key: str,
     model: str = None,
-    topic_summary: Dict[str, Any] = None,
+    topic_summary: Union[Dict[str, Any], str] = None,
     related_summary: Dict[str, Any] = None
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Gera distratores baseados na pergunta e resposta correta.
     Esta é a função atual para geração de distratores.
-    
-    Args:
-        question_data: Dados da pergunta gerada
-        answer_data: Dados da resposta gerada
-        topic: Tópico principal
-        subtopic: Subtópico (não mais usado, mantido para compatibilidade)
-        client: Cliente OpenAI
-        api_key: Chave da API
-        model: Modelo a ser usado
-        topic_summary: Resumo do tópico principal
-        related_summary: Resumo do tópico relacionado
     """
     logger.info(f"[DISTRACTORS] Iniciando geração de distratores para tópico {topic}")
     
     try:
         # Combinar contexto dos resumos
         logger.info("[DISTRACTORS] Combinando contexto dos resumos")
+        
+        # Tratar o resumo do tópico principal
+        if isinstance(topic_summary, dict):
+            logger.info("[DISTRACTORS] Processando resumo como dicionário")
+            summary_text = topic_summary.get('summary', 'Sem resumo disponível')
+            key_points = topic_summary.get('key_points', [])
+            key_points_text = chr(10).join([f"- {point['point']}: {point['explanation']}" for point in key_points]) if key_points else 'Sem pontos-chave disponíveis'
+        else:
+            logger.info("[DISTRACTORS] Processando resumo como string")
+            summary_text = topic_summary if topic_summary else 'Sem resumo disponível'
+            key_points_text = 'Sem pontos-chave disponíveis'
+            
         combined_context = f"""Contexto do tópico principal:
-{topic_summary['summary'] if topic_summary else 'Sem resumo disponível'}
+{summary_text}
 
 Pontos-chave do tópico principal:
-{chr(10).join([f"- {point['concept']}: {point['definition']}" for point in topic_summary['key_points']]) if topic_summary else 'Sem pontos-chave disponíveis'}"""
-
-        if related_summary:
-            combined_context += f"\n\nTópico relacionado: {related_summary['topic']}\n"
-            combined_context += f"Resumo: {related_summary['summary']}\n"
-            combined_context += "Pontos-chave:\n"
-            combined_context += chr(10).join([f"- {point['concept']}: {point['definition']}" for point in related_summary['key_points']])
+{key_points_text}"""
 
         correct_answer_length = len(answer_data['correct_answer'].split())
         allowed_difference = max(3, int(correct_answer_length * 0.3))
@@ -887,8 +900,8 @@ Pontos-chave do tópico principal:
 
         prompt = f"""Analise o seguinte cenário, pergunta e resposta correta sobre {topic}:
 
-Cenário e Pergunta:
-{question_data['full_question']}
+Pergunta:
+{question_data['question']}
 
 Resposta Correta:
 {answer_data['correct_answer']}
@@ -898,26 +911,31 @@ Justificativa da Resposta:
 
 {combined_context}
 
-Gere 3 alternativas incorretas (distratores) que devem:
+CRÍTICO: Você DEVE retornar APENAS um array JSON válido com exatamente 3 strings.
+NÃO inclua nenhum texto antes ou depois do JSON.
+NÃO inclua aspas ou formatação adicional.
+O JSON DEVE ser um array de strings.
+
+Exemplo de resposta esperada:
+[
+    "Primeira alternativa incorreta",
+    "Segunda alternativa incorreta",
+    "Terceira alternativa incorreta"
+]
+
+As alternativas incorretas devem:
 1. Ser plausíveis e relacionadas ao contexto
 2. Parecer corretas à primeira vista
 3. Ter o mesmo nível de complexidade da resposta correta
 4. Ser diferentes entre si
 5. Não serem obviamente incorretas
-6. Ter entre {min_length} e {max_length} palavras (a resposta correta tem {correct_answer_length} palavras, permitindo uma diferença de {allowed_difference} palavras)
-
-Formato esperado:
-[
-    "Primeira alternativa incorreta",
-    "Segunda alternativa incorreta",
-    "Terceira alternativa incorreta"
-]"""
+6. Ter entre {min_length} e {max_length} palavras (a resposta correta tem {correct_answer_length} palavras, permitindo uma diferença de {allowed_difference} palavras)"""
 
         logger.info("[DISTRACTORS] Enviando requisição para OpenAI")
         response = client.chat.completions.create(
-            model=model,  # Usando o modelo treinado passado como parâmetro
+            model=model,
             messages=[
-                {"role": "system", "content": "Você é um especialista em criar alternativas plausíveis para questões de gerenciamento de projetos."},
+                {"role": "system", "content": "Você é um especialista em criar alternativas plausíveis para questões de gerenciamento de projetos. Sua resposta DEVE ser APENAS um array JSON válido."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
@@ -928,10 +946,20 @@ Formato esperado:
         logger.info(f"[DISTRACTORS] Resposta recebida: {response_text[:200]}...")
         
         try:
-            distractors = json.loads(response_text)
+            # Tentar extrair JSON da resposta
+            import re
+            json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                distractors = json.loads(json_str)
+            else:
+                logger.error(f"[DISTRACTORS] Nenhum array JSON encontrado na resposta: {response_text}")
+                return None, ["Erro ao gerar distratores: formato inválido"]
+
             logger.info("[DISTRACTORS] JSON decodificado com sucesso")
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             logger.error(f"[DISTRACTORS] Erro ao decodificar JSON: {response_text}")
+            logger.error(f"[DISTRACTORS] Erro específico: {str(e)}")
             return None, ["Erro ao gerar distratores: formato inválido"]
 
         if not isinstance(distractors, list) or len(distractors) != 3:
@@ -1035,3 +1063,102 @@ def process_chunks_with_ai(chunks):
     except Exception as e:
         logger.error(f"[PROCESS] Erro ao processar chunks: {str(e)}")
         return None
+
+def generate_question(topic, summary):
+    """Gera uma questão sobre um tópico específico usando o contexto fornecido."""
+    try:
+        logger.info(f"[QUESTION_AI] Iniciando geração de pergunta para tópico {topic}")
+        logger.info("[QUESTION_AI] Combinando contexto dos resumos")
+        
+        # Construir o prompt com instruções mais claras sobre o formato JSON
+        prompt = f'''Gere um cenário e uma pergunta sobre {topic}.
+
+O cenário deve ser realista e contextualizado com a prática de gerenciamento de projetos.
+A pergunta deve ser clara e objetiva, sem incluir as alternativas.
+
+Contexto do tópico principal:
+{summary}
+
+IMPORTANTE: Você DEVE retornar APENAS um objeto JSON válido com exatamente este formato:
+{{
+    "scenario": "Descrição do cenário",
+    "question": "Pergunta baseada no cenário"
+}}
+
+Exemplo de resposta esperada:
+{{
+    "scenario": "Você é um gerente de projetos responsável por implementar um novo sistema de gestão em uma empresa. O projeto tem um prazo de 6 meses e um orçamento limitado.",
+    "question": "Qual é o primeiro documento que você deve desenvolver para iniciar o projeto?"
+}}'''
+
+        logger.info("[QUESTION_AI] Enviando requisição para OpenAI")
+        response = client.chat.completions.create(
+            model=os.getenv('QUESTION_MODEL_ID', 'gpt-3.5-turbo'),
+            messages=[
+                {"role": "system", "content": "Você é um especialista em criar cenários e questões de gerenciamento de projetos. Sua resposta DEVE ser um objeto JSON válido."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+        
+        content = response.choices[0].message.content.strip()
+        logger.info(f"[QUESTION_AI] Resposta recebida: {content[:100]}...")
+        
+        # Tentar extrair JSON da resposta
+        try:
+            # Primeiro, tenta decodificar diretamente
+            question_data = json.loads(content)
+        except json.JSONDecodeError:
+            # Se falhar, tenta encontrar um objeto JSON na resposta
+            import re
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                try:
+                    question_data = json.loads(json_match.group(0))
+                except json.JSONDecodeError as e:
+                    logger.error(f"[QUESTION_AI] Erro ao extrair JSON da resposta: {str(e)}")
+                    raise
+            else:
+                logger.error("[QUESTION_AI] Nenhum JSON encontrado na resposta")
+                raise ValueError("Resposta não contém JSON válido")
+        
+        # Validar estrutura do JSON
+        if not isinstance(question_data, dict):
+            logger.error(f"[QUESTION_AI] Resposta não é um dicionário: {type(question_data)}")
+            raise ValueError("Resposta não é um dicionário")
+            
+        required_fields = ['scenario', 'question']
+        missing_fields = [field for field in required_fields if field not in question_data]
+        if missing_fields:
+            logger.error(f"[QUESTION_AI] Campos obrigatórios ausentes: {missing_fields}")
+            raise ValueError(f"Campos obrigatórios ausentes: {missing_fields}")
+            
+        logger.info("[QUESTION_AI] Questão gerada com sucesso")
+        return question_data
+        
+    except Exception as e:
+        logger.error(f"[QUESTION_AI] Erro ao gerar pergunta: {str(e)}")
+        raise
+
+def validate_answer(answer_data):
+    """Valida a resposta da IA"""
+    try:
+        logger.info("[ANSWER_AI] Iniciando validação da resposta")
+        logger.info(f"[ANSWER_AI] Dados recebidos: {answer_data}")
+        
+        # Verifica se todos os campos obrigatórios estão presentes
+        required_fields = ['correct_answer', 'justification', 'pmbok_references', 'practical_examples']
+        for field in required_fields:
+            if field not in answer_data:
+                logger.error(f"[ANSWER_AI] Campo obrigatório ausente: {field}")
+                return False
+            if not answer_data[field] and not (isinstance(answer_data[field], list)):
+                logger.error(f"[ANSWER_AI] Campo vazio não permitido: {field}")
+                return False
+        
+        logger.info("[ANSWER_AI] Resposta validada com sucesso")
+        return True
+    except Exception as e:
+        logger.error(f"[ANSWER_AI] Erro na validação: {str(e)}")
+        return False

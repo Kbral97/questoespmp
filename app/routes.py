@@ -398,25 +398,47 @@ def api_random_question():
         with db_manager.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT * FROM questions 
+                SELECT 
+                    id,
+                    question,
+                    options,
+                    correct_answer,
+                    explanation,
+                    topic,
+                    created_at
+                FROM questions 
                 ORDER BY RANDOM() 
                 LIMIT 1
             ''')
             question = cursor.fetchone()
             
             if question:
-                return jsonify({
-                    'id': question['id'],
-                    'question': question['question'],
-                    'options': json.loads(question['options']),
-                    'correct_answer': question['correct_answer'],
-                    'explanation': question['explanation'],
-                    'topic': question['topic']
-                })
+                # Converter o objeto Row para dicionário
+                question_dict = dict(question)
+                
+                # Converter o índice da resposta correta para letra
+                correct_answer_letter = chr(65 + question_dict['correct_answer'])
+                
+                response_data = {
+                    'id': question_dict['id'],
+                    'question': question_dict['question'],
+                    'options': json.loads(question_dict['options']),
+                    'correct_answer': question_dict['correct_answer'],
+                    'correct_answer_letter': correct_answer_letter,
+                    'explanation': question_dict['explanation'],
+                    'topic': question_dict['topic'],
+                    'created_at': question_dict['created_at']
+                }
+                
+                # Log da resposta
+                logger.info(f"[RANDOM-QUESTION] Resposta da API: {response_data}")
+                
+                return jsonify(response_data)
             else:
                 return jsonify({'error': 'No questions available'}), 404
     except Exception as e:
         logger.error(f"Error getting random question: {str(e)}")
+        logger.error("Stack trace:", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @main.route('/api/answer-question', methods=['POST'])
@@ -425,23 +447,25 @@ def api_answer_question():
     try:
         data = request.get_json()
         question_id = data.get('question_id')
-        answer = data.get('answer')
+        selected_index = data.get('selected_index')
         
-        if not question_id or not answer:
-            return jsonify({'error': 'Missing question_id or answer'}), 400
+        if not question_id or selected_index is None:
+            logger.error(f"Parâmetros inválidos: question_id={question_id}, selected_index={selected_index}")
+            return jsonify({'error': 'Missing question_id or selected_index'}), 400
             
         with db_manager.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT correct_answer FROM questions 
+                SELECT correct_answer, explanation FROM questions 
                 WHERE id = ?
             ''', (question_id,))
             question = cursor.fetchone()
             
             if not question:
+                logger.error(f"Questão não encontrada: {question_id}")
                 return jsonify({'error': 'Question not found'}), 404
                 
-            is_correct = answer == question['correct_answer']
+            is_correct = selected_index == question[0]  # correct_answer é o primeiro campo
             
             # Update statistics
             cursor.execute('''
@@ -455,11 +479,13 @@ def api_answer_question():
             conn.commit()
             
             return jsonify({
-                'is_correct': is_correct,
-                'correct_answer': question['correct_answer']
+                'correct': is_correct,
+                'correct_index': question[0],  # Índice da resposta correta
+                'explanation': question[1]  # Explicação da questão
             })
     except Exception as e:
         logger.error(f"Error answering question: {str(e)}")
+        logger.error("Stack trace:", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @main.route('/api/report-question', methods=['POST'])
@@ -469,22 +495,26 @@ def api_report_question():
         data = request.get_json()
         question_id = data.get('question_id')
         reason = data.get('reason')
+        details = data.get('details', '')
         
         if not question_id or not reason:
+            logger.error(f"Parâmetros inválidos: question_id={question_id}, reason={reason}")
             return jsonify({'error': 'Missing question_id or reason'}), 400
             
         with db_manager.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO reported_questions (
-                    question_id, reason, reported_by, reported_at
-                ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (question_id, reason, current_user.id))
+                    question_id, reason, details, reported_by, reported_at
+                ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ''', (question_id, reason, details, current_user.id))
             conn.commit()
             
+            logger.info(f"Questão {question_id} reportada com sucesso. Motivo: {reason}")
             return jsonify({'message': 'Question reported successfully'})
     except Exception as e:
         logger.error(f"Error reporting question: {str(e)}")
+        logger.error("Stack trace:", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @main.route('/api/statistics-web')
@@ -659,12 +689,16 @@ def process_documents():
 
                             cursor.execute('''
                                 INSERT INTO topic_summaries (
-                                    document_title, topic, summary, domains, created_at
-                                ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                    document_title, topic, summary, key_points,
+                                    practical_examples, pmbok_references, domains, created_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                             ''', (
                                 doc_path,
                                 block['number'],
                                 block['content'],
+                                '[]',  # key_points vazio
+                                '[]',  # practical_examples vazio
+                                '[]',  # pmbok_references vazio
                                 json.dumps(domains)
                             ))
                             
@@ -1203,6 +1237,10 @@ def get_domains():
 @login_required
 def generate_questions_endpoint():
     try:
+        # Log do token CSRF
+        csrf_token = request.headers.get('X-CSRFToken')
+        logger.info(f"[GENERATE-QUESTIONS] CSRF Token recebido: {csrf_token}")
+        
         data = request.get_json()
         domain = data.get('domain')
         num_questions = data.get('num_questions', 5)
@@ -1235,31 +1273,48 @@ def generate_questions_endpoint():
             def normalize_unicode(text):
                 """Normaliza texto para lidar com caracteres Unicode escapados"""
                 import unicodedata
+                logger.info(f"[GENERATE-QUESTIONS] Normalizando texto: {text}")
+                logger.info(f"[GENERATE-QUESTIONS] Tipo do texto: {type(text)}")
+                logger.info(f"[GENERATE-QUESTIONS] Bytes do texto: {text.encode('utf-8')}")
+                
                 # Primeiro tenta decodificar se for bytes
                 if isinstance(text, bytes):
                     text = text.decode('utf-8')
+                    logger.info(f"[GENERATE-QUESTIONS] Texto decodificado de bytes: {text}")
+                
                 # Remove escapes Unicode
                 text = text.encode('utf-8').decode('unicode-escape')
+                logger.info(f"[GENERATE-QUESTIONS] Texto após remover escapes: {text}")
+                
                 # Normaliza para forma composta
                 text = unicodedata.normalize('NFC', text)
-                return text.lower().strip()
+                logger.info(f"[GENERATE-QUESTIONS] Texto após normalização NFC: {text}")
+                
+                # Tenta corrigir caracteres especiais
+                text = text.replace('Ã£', 'ã').replace('Ã§', 'ç').replace('Ãµ', 'õ')
+                logger.info(f"[GENERATE-QUESTIONS] Texto após correção de caracteres: {text}")
+                
+                normalized = text.lower().strip()
+                logger.info(f"[GENERATE-QUESTIONS] Texto final normalizado: {normalized}")
+                return normalized
 
             # Primeiro, vamos verificar o conteúdo da tabela
             cursor.execute("SELECT id, document_title, domains, summary FROM topic_summaries")
             all_summaries = cursor.fetchall()
             logger.info(f"[GENERATE-QUESTIONS] Total de registros na tabela: {len(all_summaries)}")
-            logger.info("[GENERATE-QUESTIONS] Conteúdo da tabela topic_summaries:")
             
             # Lista para armazenar os IDs dos resumos encontrados
             found_summary_ids = []
             
+            # Normalizar o domínio buscado
+            normalized_domain = normalize_unicode(domain)
+            logger.info(f"[GENERATE-QUESTIONS] Domínio buscado normalizado: {normalized_domain}")
+            
             for summary in all_summaries:
                 try:
                     domains_json = json.loads(summary[2])
-                    logger.info(f"[GENERATE-QUESTIONS] Documento: {summary[1]}")
-                    logger.info(f"[GENERATE-QUESTIONS] Domínios (raw): {summary[2]}")
-                    logger.info(f"[GENERATE-QUESTIONS] Domínios (parsed): {domains_json}")
-                    logger.info(f"[GENERATE-QUESTIONS] Tamanho do resumo: {len(summary[3]) if summary[3] else 0} caracteres")
+                    logger.info(f"[GENERATE-QUESTIONS] Processando documento: {summary[1]}")
+                    logger.info(f"[GENERATE-QUESTIONS] Domínios originais: {domains_json}")
                     
                     # Verifica se o domínio está presente e se tem resumo
                     if isinstance(domains_json, list) and summary[3]:
@@ -1268,13 +1323,19 @@ def generate_questions_endpoint():
                                 domain_name = domain_item.get('name', '')
                             else:
                                 domain_name = domain_item
-                                
-                            if normalize_unicode(domain_name) == normalize_unicode(domain):
+                            
+                            normalized_item = normalize_unicode(domain_name)
+                            logger.info(f"[GENERATE-QUESTIONS] Comparando:")
+                            logger.info(f"  - Domínio buscado: {normalized_domain}")
+                            logger.info(f"  - Domínio do item: {normalized_item}")
+                            
+                            if normalized_item == normalized_domain:
                                 found_summary_ids.append(summary[0])
                                 logger.info(f"[GENERATE-QUESTIONS] Domínio encontrado em resumo ID: {summary[0]}")
                                 break
                 except Exception as e:
                     logger.error(f"[GENERATE-QUESTIONS] Erro ao processar domínios: {e}")
+                    logger.error(f"[GENERATE-QUESTIONS] Stack trace: {traceback.format_exc()}")
 
             if found_summary_ids:
                 # Escolhe um resumo aleatoriamente
@@ -1333,9 +1394,55 @@ def generate_questions_endpoint():
                         logger.error("[GENERATE-QUESTIONS] No questions generated")
                         return jsonify({'error': 'Failed to generate questions'}), 500
                     
+                    # Salvar as questões no banco de dados
+                    saved_questions = []
+                    for question in questions:
+                        try:
+                            # Preparar dados da questão
+                            question_data = {
+                                'question': question['question'],
+                                'options': question['options'],
+                                'correct_answer': question['correct_answer'],
+                                'explanation': question['explanation'],
+                                'topic': domain,
+                                'metadata': json.dumps({
+                                    'summary_id': selected_id,
+                                    'generated_at': datetime.now().isoformat()
+                                })
+                            }
+                            
+                            # Salvar no banco
+                            with db_manager.get_connection() as conn:
+                                cursor = conn.cursor()
+                                cursor.execute('''
+                                    INSERT INTO questions (
+                                        question, options, correct_answer, explanation, 
+                                        topic, metadata, created_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                ''', (
+                                    question_data['question'],
+                                    json.dumps(question_data['options']),
+                                    question_data['correct_answer'],
+                                    question_data['explanation'],
+                                    question_data['topic'],
+                                    question_data['metadata']
+                                ))
+                                question_id = cursor.lastrowid
+                                conn.commit()
+                                
+                                # Adicionar ID à questão
+                                question['id'] = question_id
+                                saved_questions.append(question)
+                                logger.info(f"[GENERATE-QUESTIONS] Questão salva com ID: {question_id}")
+                                
+                        except Exception as e:
+                            logger.error(f"[GENERATE-QUESTIONS] Erro ao salvar questão: {str(e)}")
+                            logger.error("[GENERATE-QUESTIONS] Stack trace:", exc_info=True)
+                            continue
+                    
                     # Adiciona os resumos usados à resposta
                     return jsonify({
-                        'questions': questions,
+                        'questions': saved_questions,
                         'used_summaries': used_summaries
                     })
                 else:

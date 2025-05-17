@@ -65,7 +65,12 @@ def create_app(config_class=Config):
     db.init_app(app)
     login_manager.init_app(app)
     migrate.init_app(app, db)
+    
+    # Configurar CSRF
     csrf.init_app(app)
+    app.config['WTF_CSRF_CHECK_DEFAULT'] = False
+    app.config['WTF_CSRF_ENABLED'] = True
+    app.config['WTF_CSRF_SECRET_KEY'] = app.config['SECRET_KEY']
     
     # Initialize database
     with app.app_context():
