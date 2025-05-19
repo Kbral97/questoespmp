@@ -626,6 +626,17 @@ class DatabaseManager:
                     count = cursor.fetchone()[0]
                     logger.info(f"[DB-SETUP] Tabela {table_name}: {count} registros")
                 
+                # Add metadata column if it doesn't exist
+                try:
+                    cursor.execute('ALTER TABLE questions ADD COLUMN metadata TEXT DEFAULT "{}"')
+                    conn.commit()
+                    logger.info("[DB-SETUP] Coluna metadata adicionada com sucesso")
+                except Exception as e:
+                    if "duplicate column name" not in str(e).lower():
+                        logger.error(f"[DB-SETUP] Erro ao adicionar coluna metadata: {str(e)}")
+                        raise
+                    logger.info("[DB-SETUP] Coluna metadata já existe")
+                
                 conn.commit()
                 logger.info("[DB-SETUP] Setup do banco de dados concluído com sucesso")
                 
@@ -1223,3 +1234,35 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"[DB-MIGRATION] Erro ao recriar tabela questions: {str(e)}")
             raise 
+
+    def verify_and_fix_schema(self):
+        """Verifica e corrige o schema do banco de dados."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Verificar se a tabela questions existe
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='questions'")
+                if not cursor.fetchone():
+                    logger.error("[DB-SCHEMA] Tabela questions não encontrada")
+                    return False
+                
+                # Verificar se a coluna metadata existe
+                cursor.execute("PRAGMA table_info(questions)")
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                if 'metadata' not in columns:
+                    logger.info("[DB-SCHEMA] Adicionando coluna metadata")
+                    try:
+                        cursor.execute('ALTER TABLE questions ADD COLUMN metadata TEXT DEFAULT "{}"')
+                        conn.commit()
+                        logger.info("[DB-SCHEMA] Coluna metadata adicionada com sucesso")
+                    except Exception as e:
+                        logger.error(f"[DB-SCHEMA] Erro ao adicionar coluna metadata: {str(e)}")
+                        return False
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"[DB-SCHEMA] Erro ao verificar schema: {str(e)}")
+            return False 
