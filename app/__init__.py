@@ -4,6 +4,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from .config import Config
 from dotenv import load_dotenv
 from .utils.logging_config import setup_logging
@@ -26,6 +28,7 @@ db = SQLAlchemy()
 login_manager = LoginManager()
 migrate = Migrate()
 csrf = CSRFProtect()
+limiter = Limiter(key_func=get_remote_address)
 
 # Configuração do Flask-Login
 login_manager.login_view = 'main.login'
@@ -65,6 +68,7 @@ def create_app(config_class=Config):
     db.init_app(app)
     login_manager.init_app(app)
     migrate.init_app(app, db)
+    limiter.init_app(app)
     
     # Configurar CSRF
     csrf.init_app(app)

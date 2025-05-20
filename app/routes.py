@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, current_app, send_from_directory
+from flask import Blueprint, render_template, request, jsonify, redirect, url_for, flash, current_app, send_from_directory, abort
 from flask_login import login_required, current_user, login_user, logout_user
 from urllib.parse import urlparse
 from app import db
@@ -11,13 +11,16 @@ import sys
 import os
 from dotenv import load_dotenv, set_key
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import PyPDF2
 import tempfile
 from werkzeug.utils import secure_filename
 from openai import OpenAI
 import traceback
+from functools import wraps
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 # Importar usando caminho relativo
 from app.api.openai_client import get_openai_client
@@ -40,6 +43,17 @@ main = Blueprint('main', __name__)
 # Inicializar o gerenciador de banco de dados
 db_manager = DatabaseManager()
 
+# Configurar rate limiter
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+
+def log_login_attempt(username, success, ip_address):
+    """Registra tentativas de login"""
+    status = "SUCESSO" if success else "FALHA"
+    logger.warning(f"[LOGIN] Tentativa de login - Usuário: {username}, IP: {ip_address}, Status: {status}")
+
 @main.route('/')
 def index():
     if current_user.is_authenticated:
@@ -47,6 +61,7 @@ def index():
     return redirect(url_for('main.login'))
 
 @main.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
@@ -54,13 +69,15 @@ def login():
     form = LoginForm()
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
+        ip_address = request.remote_addr
+        
         if user is None or not user.check_password(form.password.data):
+            log_login_attempt(form.username.data, False, ip_address)
             flash('Usuário ou senha inválidos', 'error')
-            logger.warning(f"Falha no login para usuário: {form.username.data}")
             return redirect(url_for('main.login'))
             
         login_user(user, remember=form.remember_me.data)
-        logger.info(f"Login bem-sucedido para usuário: {form.username.data}")
+        log_login_attempt(form.username.data, True, ip_address)
         
         next_page = request.args.get('next')
         if not next_page or urlparse(next_page).netloc != '':
@@ -395,6 +412,16 @@ def get_default_models():
 @login_required
 def api_random_question():
     try:
+        # Buscar modelos padrão
+        default_models = AIModel.query.filter_by(is_default=True).all()
+        if not default_models:
+            logger.error("[RANDOM-QUESTION] Nenhum modelo padrão encontrado")
+            return jsonify({'error': 'No default models configured'}), 500
+            
+        # Mapear modelos por tipo
+        model_map = {model.model_type: model.model_id for model in default_models}
+        logger.info(f"[RANDOM-QUESTION] Modelos padrão: {model_map}")
+        
         with db_manager.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -416,8 +443,45 @@ def api_random_question():
                 # Converter o objeto Row para dicionário
                 question_dict = dict(question)
                 
-                # Converter o índice da resposta correta para letra
-                correct_answer_letter = chr(65 + question_dict['correct_answer'])
+                # Log para debug
+                logger.info(f"[RANDOM-QUESTION] Tipo do correct_answer: {type(question_dict['correct_answer'])}")
+                logger.info(f"[RANDOM-QUESTION] Valor do correct_answer: {question_dict['correct_answer']}")
+                logger.info(f"[RANDOM-QUESTION] Opções disponíveis: {question_dict['options']}")
+                
+                # Converter o índice da resposta correta para letra de forma segura
+                try:
+                    options = json.loads(question_dict['options'])
+                    correct_answer_text = question_dict['correct_answer']
+                    
+                    # Se o correct_answer for o texto da resposta, encontrar o índice
+                    if isinstance(correct_answer_text, str) and len(correct_answer_text) > 1:
+                        # Procurar o texto da resposta nas opções
+                        correct_answer_index = None
+                        for i, option in enumerate(options):
+                            if option == correct_answer_text:
+                                correct_answer_index = i
+                                break
+                        
+                        if correct_answer_index is None:
+                            logger.error(f"[RANDOM-QUESTION] Texto da resposta não encontrado nas opções: {correct_answer_text}")
+                            return jsonify({'error': 'Invalid correct_answer format'}), 500
+                    else:
+                        # Se for uma letra (A, B, C, D), converter para número
+                        if isinstance(correct_answer_text, str) and correct_answer_text.upper() in ['A', 'B', 'C', 'D']:
+                            correct_answer_index = ord(correct_answer_text.upper()) - ord('A')
+                        else:
+                            # Se for um número em string, converter para inteiro
+                            correct_answer_index = int(correct_answer_text)
+                    
+                    correct_answer_letter = chr(65 + correct_answer_index)
+                    
+                    # Log do resultado
+                    logger.info(f"[RANDOM-QUESTION] Índice da resposta correta: {correct_answer_index}")
+                    logger.info(f"[RANDOM-QUESTION] Letra da resposta correta: {correct_answer_letter}")
+                    
+                except (ValueError, TypeError) as e:
+                    logger.error(f"[RANDOM-QUESTION] Erro ao converter correct_answer: {str(e)}")
+                    return jsonify({'error': 'Invalid correct_answer format'}), 500
                 
                 response_data = {
                     'id': question_dict['id'],
@@ -1559,3 +1623,19 @@ def get_ai_response(prompt):
     except Exception as e:
         logger.error(f"Error getting AI response: {str(e)}")
         raise 
+
+@main.errorhandler(404)
+def not_found_error(error):
+    """Manipulador de erro 404 personalizado"""
+    logger.warning(f"Tentativa de acesso a rota não existente: {request.path}")
+    return render_template('404.html'), 404
+
+@main.before_request
+def before_request():
+    """Middleware para proteger rotas sensíveis"""
+    sensitive_paths = ['.env', '.env.example', 'laravel', 'wp-content', 'wp-admin', 'admin']
+    path = request.path.lower()
+    
+    if any(sensitive in path for sensitive in sensitive_paths):
+        logger.warning(f"Tentativa de acesso a rota sensível: {path}")
+        abort(404) 

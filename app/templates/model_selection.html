@@ -1,0 +1,405 @@
+{% extends "base.html" %}
+
+{% block title %}Seleção de Modelos de IA{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3">Seleção de Modelos de IA</h1>
+    </div>
+
+    <form id="modelSelectionForm" method="POST" action="{{ url_for('main.save_model_selection') }}">
+        <div class="row">
+            <!-- Modelos de Questões -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">Modelos de Questões</h5>
+                    </div>
+                    <div class="card-body">
+                        <select class="form-select" name="question_model" required>
+                            <option value="">Selecione um modelo...</option>
+                            {% for model in models if model.model_type == 'question' %}
+                            <option value="{{ model.id }}" {% if model.is_default %}selected{% endif %}>
+                                {{ model.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted mt-2 d-block">
+                            Total: {{ model_counts.question }} modelos
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modelos de Respostas -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="card-title mb-0">Modelos de Respostas</h5>
+                    </div>
+                    <div class="card-body">
+                        <select class="form-select" name="answer_model" required>
+                            <option value="">Selecione um modelo...</option>
+                            {% for model in models if model.model_type == 'answer' %}
+                            <option value="{{ model.id }}" {% if model.is_default %}selected{% endif %}>
+                                {{ model.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted mt-2 d-block">
+                            Total: {{ model_counts.answer }} modelos
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modelos de Distratores -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="card-title mb-0">Modelos de Distratores</h5>
+                    </div>
+                    <div class="card-body">
+                        <select class="form-select" name="distractor_model" required>
+                            <option value="">Selecione um modelo...</option>
+                            {% for model in models if model.model_type == 'distractor' %}
+                            <option value="{{ model.id }}" {% if model.is_default %}selected{% endif %}>
+                                {{ model.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted mt-2 d-block">
+                            Total: {{ model_counts.distractor }} modelos
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12 text-center">
+                <button type="submit" class="btn btn-primary">
+                    <i class="material-icons">save</i>
+                    Salvar Configurações
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+    .card {
+        transition: all 0.3s ease;
+        border: none;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 1rem;
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+    
+    .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+    
+    .card-header {
+        border-bottom: none;
+        padding: 1rem;
+        background: linear-gradient(45deg, rgba(0,0,0,0.1), rgba(0,0,0,0.05));
+    }
+    
+    .card-header h5 {
+        font-weight: 500;
+        margin: 0;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    .card-body {
+        padding: 1.5rem;
+        background-color: #fff;
+    }
+    
+    .form-select {
+        padding: 0.75rem;
+        font-size: 1rem;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        background-color: #fff;
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    
+    .form-select:hover {
+        border-color: #adb5bd;
+    }
+    
+    .form-select:focus {
+        border-color: #86b7fe;
+        box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
+        outline: none;
+    }
+    
+    .form-select.is-valid {
+        border-color: #198754;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath fill='%23198754' d='M2.3 6.73L.6 4.53c-.4-1.04.46-1.4 1.1-.8l1.1 1.4 3.4-3.8c.6-.63 1.6-.27 1.2.7l-4 4.6c-.43.5-.8.4-1.1.1z'/%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right calc(0.375em + 0.1875rem) center;
+        background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+    }
+
+    .form-select.is-invalid {
+        border-color: #dc3545;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' width='12' height='12' fill='none' stroke='%23dc3545'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='%23dc3545' stroke='none'/%3e%3c/svg%3e");
+        background-repeat: no-repeat;
+        background-position: right calc(0.375em + 0.1875rem) center;
+        background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+    }
+
+    .invalid-feedback {
+        display: none;
+        width: 100%;
+        margin-top: 0.25rem;
+        font-size: 0.875em;
+        color: #dc3545;
+    }
+
+    .form-select.is-invalid + .invalid-feedback {
+        display: block;
+    }
+    
+    .btn-primary {
+        padding: 0.75rem 2rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        transition: all 0.3s ease;
+        border-radius: 0.375rem;
+        background: linear-gradient(45deg, #0d6efd, #0a58ca);
+        border: none;
+    }
+    
+    .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        background: linear-gradient(45deg, #0a58ca, #084298);
+    }
+    
+    .btn-primary:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .btn-primary:disabled {
+        background: linear-gradient(45deg, #6c757d, #495057);
+        cursor: not-allowed;
+    }
+    
+    .material-icons {
+        vertical-align: middle;
+        margin-right: 0.5rem;
+        font-size: 1.25rem;
+    }
+    
+    .text-muted {
+        font-size: 0.875rem;
+        color: #6c757d !important;
+    }
+    
+    /* Animações */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .card {
+        animation: fadeIn 0.5s ease-out;
+    }
+    
+    .card:nth-child(2) {
+        animation-delay: 0.1s;
+    }
+    
+    .card:nth-child(3) {
+        animation-delay: 0.2s;
+    }
+    
+    /* Loading state */
+    .loading {
+        opacity: 0.7;
+        pointer-events: none;
+    }
+    
+    .loading .card {
+        animation: pulse 1.5s infinite;
+    }
+    
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+        100% { transform: scale(1); }
+    }
+    
+    /* Responsividade */
+    @media (max-width: 768px) {
+        .card {
+            margin-bottom: 1.5rem;
+        }
+        
+        .btn-primary {
+            width: 100%;
+        }
+        
+        .container {
+            padding: 1rem;
+        }
+    }
+    
+    /* Tema escuro */
+    @media (prefers-color-scheme: dark) {
+        .card {
+            background-color: #2d2d2d;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .card-body {
+            background-color: #2d2d2d;
+        }
+        
+        .form-select {
+            background-color: #3d3d3d;
+            border-color: #4d4d4d;
+            color: #fff;
+        }
+        
+        .form-select:hover {
+            border-color: #5d5d5d;
+        }
+        
+        .text-muted {
+            color: #adb5bd !important;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Inicializar selects do Material Design
+    const selects = document.querySelectorAll('.form-select');
+    selects.forEach(select => {
+        // Adicionar feedback de validação
+        const feedback = document.createElement('div');
+        feedback.className = 'invalid-feedback';
+        feedback.textContent = 'Por favor, selecione um modelo.';
+        select.parentNode.appendChild(feedback);
+
+        // Adicionar evento de mudança
+        select.addEventListener('change', function() {
+            validateSelect(this);
+            updateModelCount(this);
+        });
+
+        // Validar estado inicial
+        validateSelect(select);
+        updateModelCount(select);
+    });
+    
+    // Validação do formulário
+    document.getElementById('modelSelectionForm').addEventListener('submit', function(e) {
+        const selects = this.querySelectorAll('select');
+        let isValid = true;
+        
+        selects.forEach(select => {
+            if (!validateSelect(select)) {
+                isValid = false;
+            }
+        });
+        
+        if (!isValid) {
+            e.preventDefault();
+            // Rolar até o primeiro select inválido
+            const firstInvalid = this.querySelector('.is-invalid');
+            if (firstInvalid) {
+                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    });
+
+    // Função para validar select
+    function validateSelect(select) {
+        if (!select.value) {
+            select.classList.remove('is-valid');
+            select.classList.add('is-invalid');
+            return false;
+        } else {
+            select.classList.remove('is-invalid');
+            select.classList.add('is-valid');
+            return true;
+        }
+    }
+
+    // Função para atualizar contagem de modelos
+    function updateModelCount(select) {
+        const card = select.closest('.card');
+        const countElement = card.querySelector('.text-muted');
+        const selectedCount = select.querySelectorAll('option:checked').length;
+        const totalCount = select.querySelectorAll('option').length - 1; // -1 para excluir a opção vazia
+        
+        countElement.textContent = `Total: ${totalCount} modelos${selectedCount > 0 ? ` (${selectedCount} selecionado)` : ''}`;
+    }
+
+    // Adicionar animação ao salvar
+    const submitButton = document.querySelector('button[type="submit"]');
+    submitButton.addEventListener('click', function() {
+        if (this.form.checkValidity()) {
+            this.disabled = true;
+            this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Salvando...';
+            
+            // Adicionar classe de loading ao formulário
+            this.form.classList.add('loading');
+            
+            // Simular delay para feedback visual
+            setTimeout(() => {
+                this.form.classList.remove('loading');
+            }, 1000);
+        }
+    });
+
+    // Adicionar tooltips aos selects
+    selects.forEach(select => {
+        select.title = 'Clique para selecionar um modelo';
+    });
+
+    // Adicionar efeito de hover nos cards
+    const cards = document.querySelectorAll('.card');
+    cards.forEach(card => {
+        card.addEventListener('mouseenter', function() {
+            this.style.transform = 'translateY(-5px)';
+            this.style.boxShadow = '0 8px 16px rgba(0,0,0,0.2)';
+        });
+        
+        card.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0)';
+            this.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+        });
+    });
+
+    // Adicionar efeito de foco nos selects
+    selects.forEach(select => {
+        select.addEventListener('focus', function() {
+            this.closest('.card').style.borderColor = '#86b7fe';
+            this.closest('.card').style.boxShadow = '0 0 0 0.25rem rgba(13, 110, 253, 0.25)';
+        });
+        
+        select.addEventListener('blur', function() {
+            this.closest('.card').style.borderColor = '';
+            this.closest('.card').style.boxShadow = '';
+        });
+    });
+});
+</script>
+{% endblock %} 
