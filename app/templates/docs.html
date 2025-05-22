@@ -476,4 +476,20 @@ async function generateQuestions(topicId) {
                         </div>
                     `).join('')}
                 </div>
-            `
+            `;
+        }
+    } catch (error) {
+        console.error('Erro ao gerar questões:', error);
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'alert alert-danger';
+        errorDiv.textContent = `Erro ao gerar questões: ${error.message}`;
+        document.getElementById('processResults').appendChild(errorDiv);
+    }
+}
+
+// Inicializar a lista de documentos ao carregar a página
+document.addEventListener('DOMContentLoaded', function() {
+    fetchDocumentList();
+});
+</script>
+{% endblock %}
