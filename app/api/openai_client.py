@@ -23,6 +23,7 @@ import random
 from app.models import Domain, AIModel
 from app import db
 import traceback
+import httpx
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -88,10 +89,13 @@ def get_openai_client():
         if not api_key:
             raise ValueError("API key não encontrada nas variáveis de ambiente")
         
-        # Inicializar cliente com a sintaxe correta
+        # Inicializar cliente com a sintaxe correta para a versão mais recente
         client = OpenAI(
             api_key=api_key,
-            base_url=os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1')
+            base_url=os.getenv('OPENAI_API_BASE', 'https://api.openai.com/v1'),
+            http_client=httpx.Client(
+                timeout=httpx.Timeout(30.0, read=30.0, write=30.0, connect=30.0)
+            )
         )
         logger.info("[OPENAI] Cliente inicializado com sucesso")
         return client
